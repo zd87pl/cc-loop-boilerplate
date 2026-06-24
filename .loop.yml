@@ -43,11 +43,21 @@ require_human_gates:
   - premerge                     # sign off the traceability matrix before opening a PR
 
 # ---------------------------------------------------------------------------
+# First-pass spec readiness review (SPEC-001): score the spec before the human
+# gate; a NOT_READY verdict halts the loop before any code is generated.
+# ---------------------------------------------------------------------------
+spec_review:
+  enabled: true                  # set false to restore the prior behavior exactly
+  fail_on: not_ready             # not_ready = halt on NOT_READY | never = advisory only
+  sensitive_coverage_threshold: 80  # raise the verifier's coverage bar for 'sensitive' specs
+
+# ---------------------------------------------------------------------------
 # Model tiers — aliases resolved by the installed CLI. Override per stage.
 # Defaults track the current generation; treat as overridable, not pinned.
 # ---------------------------------------------------------------------------
 models:
   spec: opus                     # spec normalization: heavier reasoning
+  spec_review: opus              # first-pass readiness review: heavier reasoning
   plan: opus                     # technical planning: heavier reasoning
   tasks: sonnet                  # decomposition: workhorse
   implement: sonnet              # the default workhorse

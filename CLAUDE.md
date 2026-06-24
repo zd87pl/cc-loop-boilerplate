@@ -10,7 +10,7 @@ adds the Claude-Code-specific notes.
 
 Drive a feature through the stages, each a skill in `.claude/skills/`:
 
-`/spec-init` → `/plan` → `/tasks` → `/implement` → `/review` → `/fix` → `/verify`
+`/spec-init` → `/spec-review` → `/plan` → `/tasks` → `/implement` → `/review` → `/fix` → `/verify`
 
 The headless controller `loop/run.sh` (`make loop`) runs these in order with
 deterministic gates, branch isolation, cost/iteration caps, and human sign-off.
@@ -30,9 +30,9 @@ example).
 ## Primitives in this repo
 
 - **Skills** — `.claude/skills/*/SKILL.md` (the seven stages; manual-invocation).
-- **Subagents** — `.claude/agents/*.md`. `reviewer`, `security-auditor`, and
-  `verifier` are **read-only** (no Edit/Write); all edits route through
-  `implementer`.
+- **Subagents** — `.claude/agents/*.md`. `spec-reviewer`, `reviewer`,
+  `security-auditor`, and `verifier` are **read-only** (no Edit/Write); all edits
+  route through `implementer`.
 - **Hooks** — `.claude/hooks/`: PreToolUse secret + destructive-command veto
   (exit 2), PostToolUse per-file formatter, Stop-gate that runs the suite.
 - **Config** — `.loop.yml` is the only file most engineers edit.

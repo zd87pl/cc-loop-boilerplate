@@ -84,3 +84,20 @@ while any remain.
 
 Where the verifier should expect to find evidence (modules, test files,
 patterns). Optional but speeds up §⑦ Verify.
+
+## 8. Readiness self-check
+
+Before you submit, sanity-check the dimensions the first-pass review (`/spec-review`)
+will score — fixing these here avoids a `NOT_READY` verdict:
+
+- [ ] **Problem clarity** — the problem is real and success is defined clearly
+      enough to evaluate.
+- [ ] **Scope & decision-readiness** — in/out scope is explicit; a reviewer could
+      say yes or no.
+- [ ] **Testability & acceptance** — every `REQ-NNN` is one verifiable claim with
+      a concrete acceptance oracle (incl. error cases).
+- [ ] **NFR & guardrails** — performance, security, and data-handling stated where
+      they matter.
+- [ ] **Dependencies & second-order effects** — adjacent systems and hidden
+      dependencies surfaced.
+- [ ] No unresolved `NEEDS CLARIFICATION` lines remain.

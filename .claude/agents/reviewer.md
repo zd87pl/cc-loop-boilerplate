@@ -39,3 +39,7 @@ violates, and a concrete reproduction or argument. Be specific — "this is
 fragile" is not a finding; "with input `''` this throws at line 42 instead of
 returning the REQ-004 error" is. If you find nothing real, say so plainly rather
 than inventing nits.
+
+Lead with a single **"start here"** — the one finding to fix first — then group
+the rest into **Critical** (must fix before merge) and **Optimization** (nice to
+have). Prioritization is part of the review; don't flag everything as critical.

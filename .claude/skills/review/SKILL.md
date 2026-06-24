@@ -23,9 +23,11 @@ Read `specs/constitution.md` and the active spec first.
 3. Merge and de-duplicate the findings.
 
 ## Output
-- A findings list as JSON: `{"findings":[{id, severity, cwe?, file, line,
-  requirement?, detail}]}` plus a findings **count**, written where the
-  controller specifies. Severity ∈ `critical|high|medium|low`.
+- A findings list as JSON: `{"start_here": "<the one fix to do first>",
+  "findings":[{id, severity, cwe?, file, line, requirement?, detail}]}` plus a
+  findings **count**, written where the controller specifies. Severity ∈
+  `critical|high|medium|low`. Lead with the single **"start here"** fix and keep
+  `critical` for things that must block merge — prioritization is part of the job.
 
 ## Next
 Findings flow to `/fix`. The review↔fix cycle repeats until the review is clean
