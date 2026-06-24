@@ -50,3 +50,21 @@ jobs:
 
       - name: Quality gates (lint, typecheck, test, build, securityscan)
         run: make gates
+
+  evals:
+    # Deterministic, model-free: proves the loop's guardrails fire. Safe + free.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make scripts executable
+        run: chmod +x adapters/detect.sh adapters/stacks/*.sh loop/run.sh scripts/*.sh evals/run.sh .claude/hooks/*.sh
+      - name: spec-lint (numbered feature specs)
+        run: |
+          rc=0
+          for s in specs/[0-9]*/spec.md; do
+            echo "== lint $s =="
+            bash scripts/spec-lint.sh "$s" || rc=1
+          done
+          exit $rc
+      - name: Deterministic eval suite
+        run: make eval

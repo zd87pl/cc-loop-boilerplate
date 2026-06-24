@@ -39,10 +39,12 @@ git_default_base() {
 
 # Create or reuse a feature branch (never protected).
 git_make_feature_branch() {
-  local branch="$1"
+  local branch="$1" base="${2:-}"
   git_assert_safe_branch "$branch"
   if git show-ref --verify --quiet "refs/heads/$branch"; then
     info "reusing existing feature branch $branch"
+  elif [ -n "$base" ] && git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
+    git branch "$branch" "$base" && info "created feature branch $branch off $base"
   else
     git branch "$branch" && info "created feature branch $branch"
   fi
@@ -50,12 +52,14 @@ git_make_feature_branch() {
 
 # Create or reuse an isolated worktree checked out to the feature branch.
 git_setup_worktree() {
-  local branch="$1" path="$2"
+  local branch="$1" path="$2" base="${3:-}"
   git_assert_safe_branch "$branch"
   if git worktree list --porcelain 2>/dev/null | grep -Fq "worktree $path"; then
     info "reusing worktree at $path"
   elif git show-ref --verify --quiet "refs/heads/$branch"; then
     git worktree add "$path" "$branch" >/dev/null && info "worktree added at $path"
+  elif [ -n "$base" ] && git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
+    git worktree add -b "$branch" "$path" "$base" >/dev/null && info "worktree+branch added at $path off $base"
   else
     git worktree add -b "$branch" "$path" >/dev/null && info "worktree+branch added at $path"
   fi

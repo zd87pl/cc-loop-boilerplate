@@ -38,6 +38,9 @@ example).
 - **Hooks** — `.claude/hooks/`: PreToolUse secret + destructive-command veto
   (exit 2), PostToolUse per-file formatter, Stop-gate that runs the suite.
 - **Config** — `.loop.yml` is the only file most engineers edit.
+- **Determinism** — `scripts/spec-lint.sh` is a model-free spec gate that runs
+  before `/spec-review`; `make eval` (`evals/`) asserts the guardrails fire with
+  no model calls; `examples/duration-py/` is a real example whose gates execute.
 
 ## Don't
 

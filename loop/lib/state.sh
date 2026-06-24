@@ -2,7 +2,17 @@
 # loop/lib/state.sh — the resumable run-state file + cost meter (CON-080/081).
 # Requires jq and common.sh. STATE_FILE must be set by the caller.
 
-state_write() { local tmp="$STATE_FILE.tmp.$$"; cat > "$tmp" && mv "$tmp" "$STATE_FILE"; }
+state_write() {
+  # Refuse to write empty/invalid output: a failed jq upstream must NOT destroy
+  # the resumable state file (the atomic mv guards torn writes, not empty ones).
+  local tmp="$STATE_FILE.tmp.$$" data
+  data="$(cat)"
+  if [ -z "$data" ] || ! printf '%s' "$data" | jq -e . >/dev/null 2>&1; then
+    err "state_write: refusing to write empty/invalid state (mutation dropped)"
+    return 1
+  fi
+  printf '%s\n' "$data" > "$tmp" && mv "$tmp" "$STATE_FILE"
+}
 
 state_get()     { jq -r "$1" "$STATE_FILE"; }
 state_get_raw() { jq -c "$1" "$STATE_FILE"; }

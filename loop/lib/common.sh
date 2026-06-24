@@ -35,8 +35,8 @@ slugify() {
 looks_destructive() {
   local c="$1"
   case "$c" in
+    *"git push --force-with-lease"*)        return 1 ;;  # explicitly allowed form (test first)
     *"git push"*"--force"*|*"git push -f"*) return 0 ;;
-    *"git push --force-with-lease"*)        return 1 ;;  # explicitly allowed form
     *"git reset --hard"*)                   return 0 ;;
     *"git clean -"*[fF]*[dD]*)              return 0 ;;
     *"rm -rf /"*|*"rm -rf ~"*|*":(){:|:&};:"*) return 0 ;;

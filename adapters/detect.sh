@@ -25,7 +25,8 @@ emit() { printf '%s\n' "$1"; }
   done < <(
     find "$ROOT" -maxdepth 2 \
       \( -name .git -o -name node_modules -o -name vendor -o -name target \
-         -o -name dist -o -name build -o -name .venv -o -name .tox \) -prune -o \
+         -o -name dist -o -name build -o -name .venv -o -name .tox \
+         -o -name examples \) -prune -o \
       -type f -print 2>/dev/null
   )
 } | sort -u

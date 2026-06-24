@@ -24,7 +24,7 @@ GENERIC='(secret|token|passwd|password|api[_-]?key|access[_-]?key|private[_-]?ke
 secret_hit() { # 0 if the text looks like it contains a secret
   local t="$1"
   printf '%s' "$t" | grep -Eq  "$AWS_AKID"                && return 0
-  printf '%s' "$t" | grep -Eq  "${PK_BEGIN}[A-Z ]*${PK_REST}" && return 0
+  printf '%s' "$t" | grep -Eq -e "${PK_BEGIN}[A-Z ]*${PK_REST}" && return 0
   printf '%s' "$t" | grep -Eq  "$GH_TOKEN"                && return 0
   printf '%s' "$t" | grep -Eq  "$GOOGLE_KEY"              && return 0
   printf '%s' "$t" | grep -Eq  "$SLACK"                   && return 0
@@ -47,13 +47,23 @@ fi
 # --- 1) destructive command veto ------------------------------------------
 if [ "$tool" = "Bash" ] || [ -n "$cmd" ]; then
   c="${cmd:-$payload}"
+  # Strip the safe '--force-with-lease' form so a SEPARATE --force in a compound
+  # command (a && b) cannot hide behind it.
+  c_force="${c//--force-with-lease/}"
   case "$c" in
-    *"rm -rf /"*|*"rm -rf ~"*|*":(){:|:&};:"*|*":(){ :|:& };:"*) deny "destructive filesystem command" ;;
-    *"git push"*"--force-with-lease"*) : ;;
-    *"git push"*"--force"*|*"git push -f"*)  deny "force-push to shared history" ;;
-    *"git reset --hard"*)                    deny "git reset --hard" ;;
-    *"git clean -"*f*d*)                     deny "git clean -fd" ;;
-    *"git branch -D"*)                       deny "force branch delete" ;;
+    *"rm -rf /"*|*"rm -fr /"*|*"rm -rf ~"*|*"rm -fr ~"*|*":(){:|:&};:"*|*":(){ :|:& };:"*) deny "destructive filesystem command" ;;
+    *"git reset --hard"*) deny "git reset --hard" ;;
+    *"git branch -D"*)    deny "force branch delete" ;;
+  esac
+  case "$c_force" in
+    *"git push"*"--force"*|*"git push -f"*|*"git push"*" -f "*) deny "force-push to shared history" ;;
+  esac
+  case "$c" in
+    *"git clean"*)
+      if   printf '%s' "$c" | grep -Eq -- '(^|[^a-z])(-n|--dry-run)([^a-z]|$)'; then : # dry run is safe
+      elif printf '%s' "$c" | grep -Eq -- 'git[[:space:]]+clean[^;&|]*-[a-z]*f';  then
+        deny "git clean -f (wipes untracked files)"
+      fi ;;
   esac
 fi
 

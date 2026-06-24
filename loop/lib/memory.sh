@@ -34,5 +34,6 @@ backlog_add() {
 }
 
 backlog_count() {
-  [ -f "${BACKLOG_FILE:-/nonexistent}" ] && grep -c '^- ' "$BACKLOG_FILE" 2>/dev/null || echo 0
+  if [ -f "${BACKLOG_FILE:-/nonexistent}" ]; then grep -c '^- ' "$BACKLOG_FILE" 2>/dev/null || echo 0
+  else echo 0; fi
 }
