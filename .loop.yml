@@ -1,0 +1,91 @@
+# .loop.yml — per-repo configuration for the spec-driven engineering loop.
+#
+# This is the ONLY file most engineers need to edit. Every key has a safe
+# default baked into loop/lib/config.sh, so an empty or partial file still
+# works. Values here override those defaults.
+#
+# The loop reads this file with `yq`. Keep it valid YAML.
+
+# ---------------------------------------------------------------------------
+# Where the contract lives
+# ---------------------------------------------------------------------------
+spec_dir: specs/                 # directory holding SPEC / PRD / ADR markdown
+spec_glob: "**/spec.md"          # how to find the active spec under spec_dir
+                                 # (the loop operates on one feature/spec at a time)
+skill_prefix: ""                 # "" expects bare /spec-init (vendored mode);
+                                 # set "spec-loop:" when installed as a plugin
+
+# ---------------------------------------------------------------------------
+# Branch & worktree safety
+# ---------------------------------------------------------------------------
+base_branch: ""                  # branch to cut from; "" = current HEAD's upstream or 'main'
+branch_prefix: loop/             # feature branches are <prefix><slug>; NEVER main/master
+use_worktree: true               # run in an isolated git worktree (recommended)
+protected_branches:              # the loop refuses to commit/push to any of these
+  - main
+  - master
+  - release
+  - production
+
+# ---------------------------------------------------------------------------
+# Loop bounds (hard stops — the controller cannot exceed these)
+# ---------------------------------------------------------------------------
+max_iterations: 6                # hard cap on review<->fix cycles before a partial report
+cost_ceiling_usd: 5.00           # stop the run if cumulative model spend exceeds this
+require_progress: true           # halt if an iteration shows no measurable progress
+
+# ---------------------------------------------------------------------------
+# Human gates — which stages pause for a person (configurable; on by default)
+# Valid stage tokens: spec plan tasks implement review fix verify premerge
+# ---------------------------------------------------------------------------
+require_human_gates:
+  - spec                         # sign off normalized spec before any code is written
+  - premerge                     # sign off the traceability matrix before opening a PR
+
+# ---------------------------------------------------------------------------
+# Model tiers — aliases resolved by the installed CLI. Override per stage.
+# Defaults track the current generation; treat as overridable, not pinned.
+# ---------------------------------------------------------------------------
+models:
+  spec: opus                     # spec normalization: heavier reasoning
+  plan: opus                     # technical planning: heavier reasoning
+  tasks: sonnet                  # decomposition: workhorse
+  implement: sonnet              # the default workhorse
+  review: opus                   # adversarial review benefits from a stronger model
+  fix: sonnet
+  verify: opus                   # traceability/coverage: heavier reasoning
+  explore: haiku                 # cheap read-only subagent work
+
+# ---------------------------------------------------------------------------
+# Quality gates — override any adapter verb if your repo differs.
+# Leave a value as "" to use the auto-detected stack adapter (adapters/stacks/*).
+# A non-empty value REPLACES the adapter command for that verb.
+# ---------------------------------------------------------------------------
+gates:
+  fmt: ""                        # e.g. "make fmt"
+  lint: ""                       # e.g. "golangci-lint run"
+  typecheck: ""                  # e.g. "mypy ."
+  test: ""                       # e.g. "pnpm test --filter changed"
+  build: ""                      # e.g. "make build"
+  securityscan: ""               # e.g. "semgrep --config auto"
+coverage_threshold: 0            # minimum % line coverage the verifier enforces (0 = off)
+
+# ---------------------------------------------------------------------------
+# Secret scanning (PreToolUse veto)
+# ---------------------------------------------------------------------------
+secret_scan: true                # deny writes/commands that would expose credentials
+secret_scanner: auto             # auto | gitleaks | trufflehog | builtin
+
+# ---------------------------------------------------------------------------
+# PR behavior
+# ---------------------------------------------------------------------------
+open_pr: true                    # open a PR at the end; the loop NEVER auto-merges
+pr_draft: true                   # open as a draft so a human flips it to ready
+
+# ---------------------------------------------------------------------------
+# Observability / data handling
+# ---------------------------------------------------------------------------
+runs_dir: .loop/runs             # per-run JSONL events + report.md (gitignored)
+redact_patterns:                 # extra regexes scrubbed from logs/report (PII/secrets)
+  - "(?i)authorization: bearer [a-z0-9._-]+"
+  - "(?i)x-api-key: [a-z0-9._-]+"

@@ -1,0 +1,12 @@
+# Spec-driven loop runtime output: per-run events, reports, state, and the
+# Stop-gate block counters. Keep this out of version control (CON-092) — it can
+# contain run-specific paths and should be reproducible from the audit trail.
+.loop/
+
+# Local, per-developer Claude Code settings (never shared).
+.claude/settings.local.json
+
+# OS / editor noise
+.DS_Store
+*.swp
+*~

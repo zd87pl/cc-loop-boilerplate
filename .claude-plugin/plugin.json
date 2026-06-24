@@ -1,0 +1,22 @@
+{
+  "name": "spec-loop",
+  "displayName": "Spec-Driven Engineering Loop",
+  "version": "0.1.0",
+  "description": "Drive a feature from SPEC/PRD/ADR through specify -> plan -> tasks -> implement -> review -> fix -> verify, with deterministic quality gates, isolated branches/worktrees, secret-scanning, cost/iteration caps, and human sign-off. Polyglot and portable; never auto-merges.",
+  "author": { "name": "platform-dx" },
+  "homepage": "https://github.com/zd87pl/cc-loop-boilerplate",
+  "repository": "https://github.com/zd87pl/cc-loop-boilerplate",
+  "license": "MIT",
+  "keywords": [
+    "spec-driven-development",
+    "sdd",
+    "ears",
+    "engineering-loop",
+    "adversarial-review",
+    "traceability",
+    "polyglot"
+  ],
+  "skills": "./.claude/skills",
+  "agents": "./.claude/agents",
+  "hooks": "./.claude/hooks/hooks.json"
+}
