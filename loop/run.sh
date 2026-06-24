@@ -12,6 +12,7 @@ set -uo pipefail
 LOOP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$LOOP_DIR/.." && pwd)"
 ADAPTERS_DIR="$ROOT_DIR/adapters"
+SCRIPTS_DIR="$ROOT_DIR/scripts"
 SCHEMA_FILE="$LOOP_DIR/state.schema.json"
 export ADAPTERS_DIR
 
@@ -73,7 +74,7 @@ export COST_CEILING_USD="$(cfg '.cost_ceiling_usd' '5.00')"
 USE_WORKTREE="$(cfg_bool '.use_worktree' true)"
 OPEN_PR="$(cfg_bool '.open_pr' true)"
 PR_DRAFT="$(cfg_bool '.pr_draft' true)"
-RUNS_DIR="$ROOT_DIR/$(cfg '.runs_dir' '.loop/runs')"
+RUNS_DIR="${LOOP_RUNS_DIR:-$ROOT_DIR/$(cfg '.runs_dir' '.loop/runs')}"
 SKILL_PREFIX="$(cfg '.skill_prefix' '')"   # e.g. "spec-loop:" when installed as a plugin
 HUMAN_GATES="$(cfg_list '.require_human_gates' | tr '\n' ' ')"
 export PROTECTED_BRANCHES="$(cfg_list '.protected_branches' | tr '\n' ' ')"
@@ -85,11 +86,15 @@ SPEC_REVIEW_FAIL="$(cfg '.spec_review.fail_on' 'not_ready')"          # not_read
 SENSITIVE_COV="$(cfg '.spec_review.sensitive_coverage_threshold' '80')"
 COVERAGE_THRESHOLD="$(cfg '.coverage_threshold' '0')"
 
+# Deterministic spec lint — the cheap, model-free gate before /spec-review (SPEC-003)
+SPEC_LINT_ENABLED="$(cfg_bool '.spec_lint.enabled' true)"
+SPEC_LINT_STRICT="$(cfg_bool '.spec_lint.strict' false)"
+
 # Explorer + cross-run memory (SPEC-002)
 EXPLORE_ENABLED="$(cfg_bool '.explore.enabled' true)"
-export MEMORY_ENABLED="$(cfg_bool '.memory.enabled' true)"
-export MEMORY_FILE="$ROOT_DIR/$(cfg '.memory.file' '.loop/memory.md')"
-export BACKLOG_FILE="$ROOT_DIR/$(cfg '.memory.backlog_file' '.loop/backlog.md')"
+export MEMORY_ENABLED="${LOOP_MEMORY_ENABLED:-$(cfg_bool '.memory.enabled' true)}"
+export MEMORY_FILE="${LOOP_MEMORY_FILE:-$ROOT_DIR/$(cfg '.memory.file' '.loop/memory.md')}"
+export BACKLOG_FILE="${LOOP_BACKLOG_FILE:-$ROOT_DIR/$(cfg '.memory.backlog_file' '.loop/backlog.md')}"
 
 model_for() { cfg ".models.$1" "${2:-sonnet}"; }
 gate_type()  { case " $HUMAN_GATES " in *" $1 "*) echo human ;; *) echo auto ;; esac; }
@@ -444,6 +449,29 @@ stage_dryrun() {
 # Drive the state machine
 # ---------------------------------------------------------------------------
 stage_run spec      || exit $?
+
+# Deterministic clarification gate (SPEC-003, REQ-005): an unresolved, line-leading
+# NEEDS CLARIFICATION marker halts before any review — in dry-run and live alike.
+if grep -qE '^[[:space:]]*[-*]?[[:space:]]*NEEDS CLARIFICATION:' "$SPEC_PATH"; then
+  while IFS= read -r _c; do clarification_add "$_c"; done \
+    < <(grep -E '^[[:space:]]*[-*]?[[:space:]]*NEEDS CLARIFICATION:' "$SPEC_PATH")
+  halt "spec has unresolved NEEDS CLARIFICATION markers" needs_clarification
+  exit 0
+fi
+
+# Deterministic spec-lint — the cheap, model-free gate before the model review
+# (SPEC-003, REQ-003). Structural errors halt here so the model is reserved for
+# judgment, not mechanics.
+if $SPEC_LINT_ENABLED && [ -f "$SCRIPTS_DIR/spec-lint.sh" ]; then
+  if bash "$SCRIPTS_DIR/spec-lint.sh" "$SPEC_PATH" $($SPEC_LINT_STRICT && echo --strict) > "$RUN_DIR/spec-lint.log" 2>&1; then
+    event "spec" "spec_lint_clean"; ok "spec-lint: clean"
+  else
+    cat "$RUN_DIR/spec-lint.log" >&2
+    event "spec" "spec_lint_failed"
+    halt "spec-lint found structural errors (see $RUN_DIR/spec-lint.log)" needs_clarification
+    exit 0
+  fi
+fi
 
 # First-pass readiness review (SPEC-001): score the spec, classify risk, and
 # halt on NOT_READY before any code is generated.

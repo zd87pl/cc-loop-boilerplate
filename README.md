@@ -32,10 +32,11 @@ with a **human owning sign-off and merge**.
 ```sh
 make doctor     # check prerequisites + configuration
 make selftest   # dry-run the loop over the bundled example (no model calls, no cost)
+make eval       # assert the guardrails actually fire (deterministic; no model calls)
 make loop SPEC=specs/000-example   # run for real (needs `claude` auth)
 ```
 
-`make selftest` walks all seven stages and writes a run report with a populated
+`make selftest` walks all nine stages and writes a run report with a populated
 traceability matrix to `.loop/runs/<id>/report.md` — without calling the model.
 
 ## How the loop works
@@ -70,9 +71,11 @@ specs/              constitution.md, templates/, and one dir per feature
 adapters/           detect.sh + stacks/<lang>.sh (six-verb gate contract)
 loop/               run.sh controller, state.schema.json, lib/
 .loop.yml           the per-repo config you edit
-Makefile            make doctor | selftest | dry-run | loop | gates | new-spec
-.github/            PR template + CI that mirrors the gate suite
-scripts/            install.sh / uninstall.sh
+Makefile            make doctor | selftest | eval | spec-lint | loop | gates
+.github/            PR template + CI (gate suite + deterministic evals)
+scripts/            install.sh / uninstall.sh / spec-lint.sh (deterministic spec gate)
+evals/              make eval — deterministic guardrail assertions (no model calls)
+examples/           a real worked example whose gates actually execute
 AGENTS.md           portable cross-tool agent context
 CLAUDE.md           Claude-specific pointer to the above
 ```

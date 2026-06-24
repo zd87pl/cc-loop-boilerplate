@@ -87,6 +87,15 @@ and the verifier's traceability matrix.
 - **CON-019** Deferred items (Optimization findings, CAVEATS, drift) shall be
   carried into a persistent backlog rather than silently dropped.
 
+### Determinism before judgment, and proving it
+
+- **CON-020** Before the model reviews a spec, the system shall run a
+  deterministic, model-free `spec-lint` and halt on structural errors — mechanics
+  are checked for free; the model is reserved for judgment.
+- **CON-021** The system shall ship a deterministic eval suite that asserts its
+  guardrails (halt-on-ambiguity, lint, secret/destructive veto, protected-branch
+  refusal, a real gate) and shall run it with no model calls so it is safe in CI.
+
 ### Increments
 
 - **CON-020** While implementing, the agent shall prefer the smallest change that

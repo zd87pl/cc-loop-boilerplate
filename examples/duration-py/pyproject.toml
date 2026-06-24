@@ -1,0 +1,9 @@
+[project]
+name = "duration-example"
+version = "0.1.0"
+description = "Reference implementation of SPEC-000 (the duration-string parser)."
+requires-python = ">=3.8"
+# No dependencies (ADR-001): standard library only.
+
+# This manifest exists so adapters/detect.sh recognizes the example as a Python
+# stack and the `test` verb actually runs the suite.

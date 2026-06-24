@@ -53,6 +53,9 @@ One task → one focused change → one gate pass. **No big-bang generation.**
 | `.loop.yml` | the per-repo config you edit |
 | `adapters/` | per-language gate commands (the six-verb contract) |
 | `loop/` | the headless controller (`run.sh`) + libraries |
+| `scripts/spec-lint.sh` | deterministic, model-free spec gate (runs before review) |
+| `evals/` | `make eval` — deterministic assertions that the guardrails fire |
+| `examples/` | a real worked example whose gates actually execute |
 | `.claude/` | Claude-Code skills/agents/hooks (other tools ignore this) |
 
 ## Adapter contract (polyglot gates)

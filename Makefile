@@ -4,7 +4,7 @@ SHELL := /bin/bash
 SPEC  ?= specs/000-example
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor selftest dry-run loop new-spec fmt gates memory backlog \
+.PHONY: help doctor selftest dry-run loop new-spec fmt gates memory backlog eval spec-lint \
         spec plan tasks implement review fix verify install uninstall clean clean-all
 
 help: ## Show this help
@@ -15,6 +15,12 @@ doctor: ## Report prerequisite + configuration status
 
 selftest: ## Dry-run the loop against the bundled example (no model calls)
 	@bash loop/run.sh --dry-run --spec specs/000-example --yes
+
+eval: ## Assert the loop's deterministic guardrails on fixtures (no model calls)
+	@bash evals/run.sh
+
+spec-lint: ## Lint a spec deterministically: make spec-lint SPEC=specs/000-example
+	@bash scripts/spec-lint.sh "$(SPEC)/spec.md"
 
 dry-run: ## Dry-run the loop against $(SPEC) (no model calls)
 	@bash loop/run.sh --dry-run --spec "$(SPEC)" --yes

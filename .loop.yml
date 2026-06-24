@@ -51,6 +51,12 @@ spec_review:
   fail_on: not_ready             # not_ready = halt on NOT_READY | never = advisory only
   sensitive_coverage_threshold: 80  # raise the verifier's coverage bar for 'sensitive' specs
 
+# Deterministic spec lint — the cheap, model-free gate that runs BEFORE the model
+# review (SPEC-003). Structural errors halt the loop with needs_clarification.
+spec_lint:
+  enabled: true                  # set false to skip the deterministic spec checks
+  strict: false                  # true = also fail on warnings (uncovered REQ, dangling AC)
+
 # ---------------------------------------------------------------------------
 # Model tiers — aliases resolved by the installed CLI. Override per stage.
 # Defaults track the current generation; treat as overridable, not pinned.
