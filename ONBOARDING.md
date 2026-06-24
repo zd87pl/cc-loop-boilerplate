@@ -3,15 +3,18 @@
 This walks you from clone to a completed (dry) run, then to running the loop on
 your own feature. No cost until you opt in.
 
-## 0. Prerequisites (1 min)
+## 0. Setup (1 min)
 
 ```sh
+make setup     # interactive: checks deps, offers installs, wires the repo, smoke-tests
+# prefer to just see status without changing anything?
 make doctor
 ```
 
-You need `claude`, `git`, `jq`, `yq`, and `bash`. `gh` is optional (the loop
-prints manual PR instructions without it). A secret scanner (`gitleaks` /
-`trufflehog`) is optional — the guard falls back to a builtin scan. Fix any ✗
+`make setup` walks you through it (and has `--yes` for CI / `--check` for
+status-only). You need `claude`, `git`, `jq`, `yq`, and `bash`; `gh` is optional
+(the loop prints manual PR steps without it) and a secret scanner (`gitleaks` /
+`trufflehog`) is optional — the guard falls back to a builtin scan. Resolve any ✗
 items before continuing.
 
 ## 1. Run the example loop — dry, no model, no cost (2 min)
