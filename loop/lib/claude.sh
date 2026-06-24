@@ -40,7 +40,12 @@ claude_stage() {
 
   if [ $rc -ne 0 ]; then
     warn "claude exited $rc for stage '$stage': $(head -c 400 "$errf")"
-    rm -f "$errf"; printf '%s' "$out"; return $rc
+    rm -f "$errf"
+    # Accrue any cost a failed / budget-capped call already incurred, so the meter
+    # stays honest and a real budget exhaustion is recognized rather than lost.
+    local fcost; fcost="$(printf '%s' "$out" | jq -r '.total_cost_usd // 0' 2>/dev/null || echo 0)"
+    cost_add "$fcost" 0 0
+    printf '%s' "$out"; return $rc
   fi
   rm -f "$errf"
 
