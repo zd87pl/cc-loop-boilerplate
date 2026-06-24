@@ -127,12 +127,20 @@ STATE_FILE="$RUN_DIR/state.json"
 EVENTS_FILE="$RUN_DIR/events.jsonl"
 export RUN_DIR STATE_FILE EVENTS_FILE
 mkdir -p "$RUN_DIR"
-: > "$EVENTS_FILE" 2>/dev/null || EVENTS_FILE="$RUN_DIR/events.jsonl"
-[ -f "$EVENTS_FILE" ] || : > "$EVENTS_FILE"
+# Initialize the event stream only for a FRESH run; resuming must preserve the
+# append-only audit trail (CON-080) rather than truncate it.
+if [ -n "$RESUME_ID" ] && [ -f "$EVENTS_FILE" ]; then :; else : > "$EVENTS_FILE"; fi
 
 BASE_BRANCH="$(cfg '.base_branch' '')"; [ -n "$BASE_BRANCH" ] || BASE_BRANCH="$(git_default_base)"
 BRANCH="${BRANCH_PREFIX}$(slugify "$SPEC_ID")-$(printf '%04x' $RANDOM)"
-[ -n "$RESUME_ID" ] && [ -f "$STATE_FILE" ] && BRANCH="$(state_get '.git.branch')"
+if [ -n "$RESUME_ID" ] && [ -f "$STATE_FILE" ]; then
+  BRANCH="$(state_get '.git.branch' 2>/dev/null)"
+  case "$BRANCH" in ''|null) die "resume: could not read a valid branch from $STATE_FILE" ;; esac
+fi
+
+# Validate user-supplied numerics so a config typo cannot corrupt state.json (jq --argjson).
+case "$MAX_ITER" in ''|*[!0-9]*) die "max_iterations must be a non-negative integer (got '$MAX_ITER')" ;; esac
+case "$COST_CEILING_USD" in ''|*[!0-9.]*|*.*.*) die "cost_ceiling_usd must be a number (got '$COST_CEILING_USD')" ;; esac
 
 # Safety, demonstrated read-only before any mutation (CON-041).
 git_assert_safe_branch "$BRANCH"
@@ -206,16 +214,18 @@ finish() {
   fi
   [ -f "$RUN_DIR/traceability.md" ] || report_write_traceability "$SPEC_PATH" "$DRY_RUN" 2>/dev/null || true
   report_render 2>/dev/null || true
-  # Carry deferred items into the persistent backlog and record a run digest in
-  # cross-run memory (SPEC-002, REQ-005/006). Runs on every terminal state.
-  if [ -f "$RUN_DIR/backlog.add" ]; then
-    while IFS= read -r _item; do [ -n "$_item" ] && backlog_add "$_item (run $RUN_ID)"; done < "$RUN_DIR/backlog.add"
-  fi
-  memory_append "run $RUN_ID" <<DIGEST
+  # Carry deferred items + record a digest only when state is valid JSON, so a
+  # corrupt or early-aborted state cannot poison cross-run memory (SPEC-002).
+  if jq -e . "$STATE_FILE" >/dev/null 2>&1; then
+    if [ -f "$RUN_DIR/backlog.add" ]; then
+      while IFS= read -r _item; do [ -n "$_item" ] && backlog_add "$_item (run $RUN_ID)"; done < "$RUN_DIR/backlog.add"
+    fi
+    memory_append "run $RUN_ID" <<DIGEST
 - spec: $(state_get '.spec.id' 2>/dev/null) ($(state_get '.spec.path' 2>/dev/null))
 - status: $(state_get '.status' 2>/dev/null)  readiness: $(state_get '.spec.readiness // "n/a"' 2>/dev/null)  risk: $(state_get '.spec.risk_class // "n/a"' 2>/dev/null)
 - iterations: $(state_get '.iteration' 2>/dev/null)  cost: \$$(state_get '.cost.spent_usd // 0' 2>/dev/null)  branch: $(state_get '.git.branch' 2>/dev/null)
 DIGEST
+  fi
 }
 trap finish EXIT
 
@@ -317,8 +327,9 @@ stage_prompt() { # stage_prompt <name>
 }
 
 read_findings_count() {
-  local f="$RUN_DIR/findings.count"
-  [ -f "$f" ] && tr -dc '0-9' < "$f" || echo 0
+  local f="$RUN_DIR/findings.count" n=""
+  [ -f "$f" ] && n="$(tr -dc '0-9' < "$f" 2>/dev/null)"
+  echo "${n:-0}"
 }
 
 # stage_run <name> — advance one stage. Honors resume (skips passed stages),
@@ -528,8 +539,7 @@ done
 case "$(state_get '.status')" in halted|partial|needs_clarification) exit 0 ;; esac
 
 # Final gate suite must be green before verify's human pre-merge gate (CON-031).
-gates_run_suite >/dev/null 2>&1
-if ! gates_all_green; then
+if ! gates_run_suite >/dev/null 2>&1 || ! gates_all_green; then
   halt "quality gates are red; cannot proceed to pre-merge" partial; exit 0
 fi
 
