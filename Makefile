@@ -4,8 +4,8 @@ SHELL := /bin/bash
 SPEC  ?= specs/000-example
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor selftest dry-run loop new-spec fmt gates \
-        spec plan tasks implement review fix verify install uninstall clean
+.PHONY: help doctor selftest dry-run loop new-spec fmt gates memory backlog \
+        spec plan tasks implement review fix verify install uninstall clean clean-all
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}' $(MAKEFILE_LIST)
@@ -62,5 +62,14 @@ install: ## Check prerequisites and print plugin-install instructions
 uninstall: ## Print plugin-uninstall instructions
 	@bash scripts/uninstall.sh
 
-clean: ## Remove local run artifacts under .loop/
-	@rm -rf .loop && echo "removed .loop/"
+memory: ## Show cross-run memory (prior-run digests)
+	@cat .loop/memory.md 2>/dev/null || echo "no memory yet (.loop/memory.md)"
+
+backlog: ## Show the carried-forward backlog
+	@cat .loop/backlog.md 2>/dev/null || echo "backlog empty (.loop/backlog.md)"
+
+clean: ## Remove per-run artifacts (keeps cross-run memory + backlog)
+	@rm -rf .loop/runs .loop/worktrees && echo "removed .loop/runs + .loop/worktrees (memory/backlog kept)"
+
+clean-all: ## Remove ALL loop state, including cross-run memory + backlog
+	@rm -rf .loop && echo "removed .loop/ (including memory + backlog)"

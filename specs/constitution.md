@@ -77,6 +77,16 @@ and the verifier's traceability matrix.
   change-walkthrough (what changed, why, risk areas) so a human reviews with
   understanding rather than rubber-stamping.
 
+### Grounding and cross-run memory
+
+- **CON-017** Before planning, the system shall run a read-only codebase
+  reconnaissance that writes a context map the plan stage reads, so plans are
+  grounded in the code that exists rather than re-derived from zero each run.
+- **CON-018** The system shall load cross-run memory at the start of a run and
+  append a per-run digest (not transcripts) at its end, keeping PII/secrets out.
+- **CON-019** Deferred items (Optimization findings, CAVEATS, drift) shall be
+  carried into a persistent backlog rather than silently dropped.
+
 ### Increments
 
 - **CON-020** While implementing, the agent shall prefer the smallest change that

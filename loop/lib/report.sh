@@ -115,6 +115,12 @@ report_render() {
     echo
     if [ -f "$RUN_DIR/walkthrough.md" ]; then cat "$RUN_DIR/walkthrough.md"; else echo "_not generated_"; fi
     echo
+    echo "## Carried-forward backlog (cross-run)"
+    echo
+    if [ -n "${BACKLOG_FILE:-}" ] && [ -f "$BACKLOG_FILE" ]; then
+      tail -n 20 "$BACKLOG_FILE"
+    else echo "_empty_"; fi
+    echo
     echo "## Data handling"
     echo
     echo "All spec/code processing is local. The only data sent off-machine is the"

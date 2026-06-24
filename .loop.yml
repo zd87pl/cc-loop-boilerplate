@@ -87,6 +87,16 @@ secret_scan: true                # deny writes/commands that would expose creden
 secret_scanner: auto             # auto | gitleaks | trufflehog | builtin
 
 # ---------------------------------------------------------------------------
+# Codebase explorer + cross-run memory (SPEC-002): ground the loop in reality.
+# ---------------------------------------------------------------------------
+explore:
+  enabled: true                  # cheap read-only recon before PLAN (uses models.explore)
+memory:
+  enabled: true                  # load prior-run digests at start; append one at end
+  file: .loop/memory.md          # cross-run memory (gitignored; survives `make clean`)
+  backlog_file: .loop/backlog.md # carried-forward deferred items
+
+# ---------------------------------------------------------------------------
 # PR behavior
 # ---------------------------------------------------------------------------
 open_pr: true                    # open a PR at the end; the loop NEVER auto-merges

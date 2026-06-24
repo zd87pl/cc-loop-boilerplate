@@ -44,6 +44,7 @@ traceability matrix to `.loop/runs/<id>/report.md` — without calling the model
 | - | ----- | ---------------- | ------ | ---- |
 | ① | Specify | `architect` | normalized EARS `spec.md` + open questions | human |
 | ①·5 | Spec review | `spec-reviewer` | readiness scorecard + verdict + risk class | auto (`NOT_READY` halts) |
+| ①·8 | Explore | `explorer` | codebase context map (cheap, read-only) | auto |
 | ② | Plan | `architect` | technical plan referencing ADRs/NFRs | auto (+opt. human) |
 | ③ | Tasks | `architect` | ordered, independently testable tasks | auto |
 | ④ | Implement | `implementer` | code + tests per task, on a branch | auto (hooks run) |
@@ -61,7 +62,7 @@ measurable progress.
 .claude/            Claude Code integration
   settings.json     hooks wiring + permission baseline (project mode)
   skills/*/SKILL.md the seven stage slash commands
-  agents/*.md       architect, spec-reviewer, implementer, reviewer, security-auditor, verifier
+  agents/*.md       architect, spec-reviewer, explorer, implementer, reviewer, security-auditor, verifier
   hooks/            pretool-guard (secret+danger veto), posttool-format, stop-gate
 .claude-plugin/     plugin.json + marketplace.json (org-wide install)
 plugin/README.md    distribution docs
