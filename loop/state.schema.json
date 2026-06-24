@@ -96,7 +96,7 @@
       "additionalProperties": true,
       "required": ["name", "status"],
       "properties": {
-        "name": { "enum": ["spec", "plan", "tasks", "implement", "review", "fix", "verify"] },
+        "name": { "enum": ["spec", "spec_review", "explore", "plan", "tasks", "implement", "review", "fix", "verify"] },
         "owner": { "type": "string", "description": "Subagent that owns the stage." },
         "gate": { "enum": ["auto", "human"] },
         "status": { "enum": ["pending", "running", "passed", "failed", "blocked", "skipped"] },

@@ -56,6 +56,37 @@ and the verifier's traceability matrix.
 - **CON-011** The agent shall never invent requirements, public APIs, acceptance
   criteria, or test oracles to make a stage pass.
 
+### Spec readiness (first-pass review)
+
+- **CON-012** Before the spec human gate, the system shall run a first-pass
+  readiness review that scores the spec across the readiness dimensions (problem
+  clarity; scope & decision-readiness; testability & acceptance; NFR & guardrails;
+  dependencies & second-order effects) and emits one verdict: `READY`, `CAVEATS`,
+  or `NOT_READY`.
+- **CON-013** If a critical gap is present (a requirement without a testable
+  acceptance criterion, an unresolved `NEEDS CLARIFICATION`, a data- or
+  security-touching change without a guardrail, or scope that is not
+  decision-ready), then the verdict shall be `NOT_READY` and the controller shall
+  halt before PLAN.
+- **CON-014** The readiness review shall output prioritized, write-ready action
+  items: a single "start here" fix and separated `Critical` and `Optimization`
+  lists. It shall not flag every item as critical.
+- **CON-015** Where the spec is classified `sensitive`, the verifier's effective
+  coverage threshold shall be raised to the configured sensitive minimum.
+- **CON-016** When the verify stage runs, the system shall produce a
+  change-walkthrough (what changed, why, risk areas) so a human reviews with
+  understanding rather than rubber-stamping.
+
+### Grounding and cross-run memory
+
+- **CON-017** Before planning, the system shall run a read-only codebase
+  reconnaissance that writes a context map the plan stage reads, so plans are
+  grounded in the code that exists rather than re-derived from zero each run.
+- **CON-018** The system shall load cross-run memory at the start of a run and
+  append a per-run digest (not transcripts) at its end, keeping PII/secrets out.
+- **CON-019** Deferred items (Optimization findings, CAVEATS, drift) shall be
+  carried into a persistent backlog rather than silently dropped.
+
 ### Increments
 
 - **CON-020** While implementing, the agent shall prefer the smallest change that

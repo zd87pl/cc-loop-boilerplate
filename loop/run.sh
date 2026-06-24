@@ -24,6 +24,7 @@ export ADAPTERS_DIR
 . "$LOOP_DIR/lib/gates.sh"
 . "$LOOP_DIR/lib/claude.sh"
 . "$LOOP_DIR/lib/report.sh"
+. "$LOOP_DIR/lib/memory.sh"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -78,6 +79,18 @@ HUMAN_GATES="$(cfg_list '.require_human_gates' | tr '\n' ' ')"
 export PROTECTED_BRANCHES="$(cfg_list '.protected_branches' | tr '\n' ' ')"
 [ -z "${PROTECTED_BRANCHES// /}" ] && export PROTECTED_BRANCHES="main master"
 
+# First-pass spec readiness review (SPEC-001)
+SPEC_REVIEW_ENABLED="$(cfg_bool '.spec_review.enabled' true)"
+SPEC_REVIEW_FAIL="$(cfg '.spec_review.fail_on' 'not_ready')"          # not_ready | never
+SENSITIVE_COV="$(cfg '.spec_review.sensitive_coverage_threshold' '80')"
+COVERAGE_THRESHOLD="$(cfg '.coverage_threshold' '0')"
+
+# Explorer + cross-run memory (SPEC-002)
+EXPLORE_ENABLED="$(cfg_bool '.explore.enabled' true)"
+export MEMORY_ENABLED="$(cfg_bool '.memory.enabled' true)"
+export MEMORY_FILE="$ROOT_DIR/$(cfg '.memory.file' '.loop/memory.md')"
+export BACKLOG_FILE="$ROOT_DIR/$(cfg '.memory.backlog_file' '.loop/backlog.md')"
+
 model_for() { cfg ".models.$1" "${2:-sonnet}"; }
 gate_type()  { case " $HUMAN_GATES " in *" $1 "*) echo human ;; *) echo auto ;; esac; }
 
@@ -131,6 +144,8 @@ seed_state() {
     --arg g_verify "$(gate_type premerge)" \
     '[
       {name:"spec",     owner:"architect",                       gate:$g_spec,  status:"pending",attempts:0,started_at:null,ended_at:null,artifact:null},
+      {name:"spec_review",owner:"spec-reviewer",                 gate:"auto",   status:"pending",attempts:0,started_at:null,ended_at:null,artifact:null},
+      {name:"explore",  owner:"explorer",                        gate:"auto",   status:"pending",attempts:0,started_at:null,ended_at:null,artifact:null},
       {name:"plan",     owner:"architect",                       gate:"auto",   status:"pending",attempts:0,started_at:null,ended_at:null,artifact:null},
       {name:"tasks",    owner:"architect",                       gate:"auto",   status:"pending",attempts:0,started_at:null,ended_at:null,artifact:null},
       {name:"implement",owner:"implementer",                     gate:"auto",   status:"pending",attempts:0,started_at:null,ended_at:null,artifact:null},
@@ -145,6 +160,7 @@ seed_state() {
     --arg cfg_hash "$(config_hash)" --argjson max_iter "$MAX_ITER" \
     --argjson cost_ceil "$COST_CEILING_USD" \
     --arg m_spec "$(model_for spec opus)" --arg m_plan "$(model_for plan opus)" \
+    --arg m_specreview "$(model_for spec_review opus)" --arg m_explore "$(model_for explore haiku)" \
     --arg m_tasks "$(model_for tasks sonnet)" --arg m_impl "$(model_for implement sonnet)" \
     --arg m_review "$(model_for review opus)" --arg m_fix "$(model_for fix sonnet)" \
     --arg m_verify "$(model_for verify opus)" \
@@ -157,7 +173,7 @@ seed_state() {
       spec:{dir:$spec_dir, path:$spec_path, id:$spec_id},
       git:{base_branch:$base_branch, branch:$branch, worktree:null, base_sha:null, head_sha:null},
       config:{hash:$cfg_hash, max_iterations:$max_iter, cost_ceiling_usd:$cost_ceil},
-      models:{spec:$m_spec, plan:$m_plan, tasks:$m_tasks, implement:$m_impl, review:$m_review, fix:$m_fix, verify:$m_verify},
+      models:{spec:$m_spec, spec_review:$m_specreview, explore:$m_explore, plan:$m_plan, tasks:$m_tasks, implement:$m_impl, review:$m_review, fix:$m_fix, verify:$m_verify},
       cost:{spent_usd:0, input_tokens:0, output_tokens:0},
       stages:$stages, gates:{}, clarifications:[],
       pr:{opened:false, draft:true, url:null},
@@ -185,6 +201,16 @@ finish() {
   fi
   [ -f "$RUN_DIR/traceability.md" ] || report_write_traceability "$SPEC_PATH" "$DRY_RUN" 2>/dev/null || true
   report_render 2>/dev/null || true
+  # Carry deferred items into the persistent backlog and record a run digest in
+  # cross-run memory (SPEC-002, REQ-005/006). Runs on every terminal state.
+  if [ -f "$RUN_DIR/backlog.add" ]; then
+    while IFS= read -r _item; do [ -n "$_item" ] && backlog_add "$_item (run $RUN_ID)"; done < "$RUN_DIR/backlog.add"
+  fi
+  memory_append "run $RUN_ID" <<DIGEST
+- spec: $(state_get '.spec.id' 2>/dev/null) ($(state_get '.spec.path' 2>/dev/null))
+- status: $(state_get '.status' 2>/dev/null)  readiness: $(state_get '.spec.readiness // "n/a"' 2>/dev/null)  risk: $(state_get '.spec.risk_class // "n/a"' 2>/dev/null)
+- iterations: $(state_get '.iteration' 2>/dev/null)  cost: \$$(state_get '.cost.spent_usd // 0' 2>/dev/null)  branch: $(state_get '.git.branch' 2>/dev/null)
+DIGEST
 }
 trap finish EXIT
 
@@ -210,6 +236,7 @@ else
 fi
 export REPO_DIR
 state_set_str '.git.base_sha' "$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+memory_load   # cross-run memory; its path is handed to stages as context (SPEC-002)
 
 # ---------------------------------------------------------------------------
 # Stage primitives
@@ -270,15 +297,17 @@ tools_for() {
 }
 stage_prompt() { # stage_prompt <name>
   local n="$1"
-  local common="Constitution: $ROOT_DIR/specs/constitution.md. Active spec: $SPEC_PATH (and sibling prd.md/adr-*.md). Run dir for artifacts: $RUN_DIR. If anything is ambiguous or under-specified, emit a line starting 'NEEDS CLARIFICATION:' and stop — do not guess."
+  local common="Constitution: $ROOT_DIR/specs/constitution.md. Active spec: $SPEC_PATH (and sibling prd.md/adr-*.md). Run dir for artifacts: $RUN_DIR. Cross-run memory (prior decisions + carried backlog): $MEMORY_FILE — read it for context. If anything is ambiguous or under-specified, emit a line starting 'NEEDS CLARIFICATION:' and stop — do not guess."
   case "$n" in
-    spec)      echo "/${SKILL_PREFIX}spec-init $common Write the normalized EARS spec back to $SPEC_PATH and an open-questions list to $RUN_DIR/open-questions.md." ;;
-    plan)      echo "/${SKILL_PREFIX}plan $common Write the technical plan to $RUN_DIR/plan.md." ;;
+    spec)        echo "/${SKILL_PREFIX}spec-init $common Write the normalized EARS spec back to $SPEC_PATH and an open-questions list to $RUN_DIR/open-questions.md." ;;
+    spec_review) echo "/${SKILL_PREFIX}spec-review $common Score the spec across the five readiness dimensions, classify risk, and write the scorecard to $RUN_DIR/spec-review.md, a single verdict token (READY|CAVEATS|NOT_READY) to $RUN_DIR/spec-review.verdict, a single risk token (low|standard|sensitive) to $RUN_DIR/spec-review.riskclass, and $RUN_DIR/spec-review.json." ;;
+    explore)     echo "/${SKILL_PREFIX}explore $common Survey the existing codebase and write a concise context map (relevant modules with path:symbol, build/test conventions, integration points/contracts, prior art to reuse, top risks) to $RUN_DIR/context-map.md." ;;
+    plan)        echo "/${SKILL_PREFIX}plan $common Read $RUN_DIR/context-map.md. Write the technical plan to $RUN_DIR/plan.md." ;;
     tasks)     echo "/${SKILL_PREFIX}tasks $common Read $RUN_DIR/plan.md. Write an ordered, independently testable task list to $RUN_DIR/tasks.md." ;;
     implement) echo "/${SKILL_PREFIX}implement $common Read $RUN_DIR/tasks.md. Implement the next unfinished task with a test, on branch $BRANCH in $REPO_DIR. Commit per task." ;;
     review)    echo "/${SKILL_PREFIX}review $common Adversarially review the diff on $BRANCH and run a security pass. Write findings (with severities + CWE where applicable) to $RUN_DIR/findings.json as {\"findings\":[...]}, and write the count to $RUN_DIR/findings.count." ;;
     fix)       echo "/${SKILL_PREFIX}fix $common Read $RUN_DIR/findings.json. Apply the smallest fixes that resolve the findings, re-running gates. Update $RUN_DIR/findings.count." ;;
-    verify)    echo "/${SKILL_PREFIX}verify $common Build the SPEC/PRD/ADR ⇄ code ⇄ test traceability matrix to $RUN_DIR/traceability.md, report drift and coverage. Do not edit code." ;;
+    verify)      echo "/${SKILL_PREFIX}verify $common Build the SPEC/PRD/ADR ⇄ code ⇄ test traceability matrix to $RUN_DIR/traceability.md, report drift and coverage, and write a short change-walkthrough (what changed, why, risk areas) to $RUN_DIR/walkthrough.md. Do not edit code." ;;
   esac
 }
 
@@ -343,6 +372,46 @@ stage_dryrun() {
         return 0  # caller's scan handles real runs; for dry-run we note + continue example has none
       fi
       printf '# Normalized spec (dry-run stub)\nSee %s\n' "$SPEC_PATH" > "$RUN_DIR/spec.normalized.md" ;;
+    spec_review)
+      # Derive a plausible verdict + risk from the spec text (no model call).
+      local verdict="READY" risk="standard" reqs acs
+      reqs="$(grep -cE '^\| *REQ-[0-9]' "$SPEC_PATH" 2>/dev/null)"; reqs="${reqs:-0}"
+      acs="$(grep -cE '^\| *AC-[0-9]'  "$SPEC_PATH" 2>/dev/null)"; acs="${acs:-0}"
+      grep -q 'NEEDS CLARIFICATION:' "$SPEC_PATH" 2>/dev/null && verdict="NOT_READY"
+      grep -Eiq 'auth|passwd|password|secret|credential|\bPII\b|payment|gdpr|encryption|api[_-]?key' "$SPEC_PATH" 2>/dev/null && risk="sensitive"
+      printf '%s' "$verdict" > "$RUN_DIR/spec-review.verdict"
+      printf '%s' "$risk"    > "$RUN_DIR/spec-review.riskclass"
+      {
+        echo "# Spec readiness scorecard (dry-run stub)"
+        echo
+        echo "- **Verdict:** $verdict"
+        echo "- **Risk class:** $risk"
+        echo "- **Start here:** confirm every requirement has a concrete, testable acceptance oracle (found $reqs requirements, $acs acceptance rows)."
+        echo
+        echo "## Dimensions (1-5)"
+        echo "- Problem clarity: (model-scored in a real run)"
+        echo "- Scope & decision-readiness: (model-scored in a real run)"
+        echo "- Testability & acceptance: (model-scored in a real run)"
+        echo "- NFR & guardrails: (model-scored in a real run)"
+        echo "- Dependencies & second-order effects: (model-scored in a real run)"
+        echo
+        echo "## Critical"
+        if [ "$verdict" = "NOT_READY" ]; then echo "- Resolve the open NEEDS CLARIFICATION before proceeding."; else echo "- _none_"; fi
+        echo
+        echo "## Optimization"
+        echo "- _none (dry-run stub)_"
+      } > "$RUN_DIR/spec-review.md"
+      printf '{"verdict":"%s","risk_class":"%s","start_here":"confirm every requirement has a testable acceptance oracle","dimensions":[],"critical":[],"optimization":[]}\n' \
+        "$verdict" "$risk" > "$RUN_DIR/spec-review.json" ;;
+    explore)
+      {
+        echo "# Context map (dry-run stub)"
+        echo
+        echo "- **Modules:** surveyed in a real run by the explorer agent (cites path:symbol)."
+        echo "- **Conventions:** gate verbs via adapters/; overrides in .loop.yml gates.*"
+        echo "- **Integration points / contracts:** (none gathered in dry-run)"
+        echo "- **Top risks:** (none gathered in dry-run)"
+      } > "$RUN_DIR/context-map.md" ;;
     plan)      printf '# Technical plan (dry-run stub)\nDerived from %s\n' "$SPEC_PATH" > "$RUN_DIR/plan.md" ;;
     tasks)     printf '# Tasks (dry-run stub)\n- T1: implement parser core\n- T2: error handling\n- T3: CLI wrapper\n' > "$RUN_DIR/tasks.md" ;;
     implement)
@@ -357,7 +426,16 @@ stage_dryrun() {
       touch "$RUN_DIR/.dry_fixed"; echo 0 > "$RUN_DIR/findings.count"
       gates_run_suite >/dev/null 2>&1 || true ;;
     verify)
-      report_write_traceability "$SPEC_PATH" "true" ;;
+      report_write_traceability "$SPEC_PATH" "true"
+      {
+        echo "# Change walkthrough (dry-run stub)"
+        echo
+        echo "- **What changed:** no code generated in dry-run."
+        echo "- **Why:** demonstrates the comprehension artifact a real verify run produces."
+        echo "- **Risk areas:** none (dry-run)."
+      } > "$RUN_DIR/walkthrough.md"
+      # Declare a deferred item; the controller carries it into the cross-run backlog.
+      printf '%s\n' "Optimization: add property-based fuzz tests for the parser (deferred from verify)" > "$RUN_DIR/backlog.add" ;;
   esac
   return 0
 }
@@ -366,7 +444,37 @@ stage_dryrun() {
 # Drive the state machine
 # ---------------------------------------------------------------------------
 stage_run spec      || exit $?
-human_gate spec     "Approve the normalized spec and proceed to PLAN?" || { halt "spec gate declined" halted; exit 0; }
+
+# First-pass readiness review (SPEC-001): score the spec, classify risk, and
+# halt on NOT_READY before any code is generated.
+VERDICT=""; RISK=""
+if $SPEC_REVIEW_ENABLED; then
+  stage_run spec_review || exit $?
+  VERDICT="$(tr -d '[:space:]' < "$RUN_DIR/spec-review.verdict" 2>/dev/null)"; [ -n "$VERDICT" ] || VERDICT="READY"
+  RISK="$(tr -d '[:space:]' < "$RUN_DIR/spec-review.riskclass" 2>/dev/null)"; [ -n "$RISK" ] || RISK="standard"
+  state_set_str '.spec.readiness' "$VERDICT"
+  state_set_str '.spec.risk_class' "$RISK"
+  event "spec_review" "verdict" "$(jq -nc --arg v "$VERDICT" --arg r "$RISK" '{verdict:$v, risk_class:$r}')"
+  info "spec readiness: verdict=$VERDICT risk=$RISK"
+  # Calibrate downstream depth: raise the verifier's coverage bar for sensitive specs (REQ-008).
+  if [ "$RISK" = "sensitive" ] && awk -v a="$SENSITIVE_COV" -v b="$COVERAGE_THRESHOLD" 'BEGIN{exit !(a>b)}'; then
+    COVERAGE_THRESHOLD="$SENSITIVE_COV"
+    info "sensitive spec → effective coverage threshold raised to ${COVERAGE_THRESHOLD}%"
+  fi
+  state_set '.config.effective_coverage_threshold' "$COVERAGE_THRESHOLD"
+  # Hard gate on the verdict (REQ-004/005); decided by the file, not by a prompt.
+  if [ "$VERDICT" = "NOT_READY" ] && [ "$SPEC_REVIEW_FAIL" = "not_ready" ]; then
+    clarification_add "spec readiness = NOT_READY — resolve the critical gaps in spec-review.md ('start here')"
+    halt "spec is NOT_READY; resolve the critical gaps in the scorecard" needs_clarification
+    exit 0
+  fi
+fi
+
+human_gate spec     "Approve the spec (readiness=${VERDICT:-n/a}, risk=${RISK:-n/a}) and proceed to PLAN?" || { halt "spec gate declined" halted; exit 0; }
+
+# Codebase reconnaissance before planning (SPEC-002): cheap, read-only, grounds
+# the plan in the code that exists.
+if $EXPLORE_ENABLED; then stage_run explore || exit $?; else stage_update_str explore status skipped; fi
 
 stage_run plan      || exit $?
 stage_run tasks     || exit $?

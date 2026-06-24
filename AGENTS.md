@@ -17,10 +17,13 @@ Claude-Code-specific notes live in `CLAUDE.md`.
 ## The loop
 
 ```
-specify → plan → tasks → implement → review → fix → verify → human sign-off → PR
-   ▲                                                  │
-   └──────────── gaps / drift / failed gates ◄────────┘
+specify → spec-review → explore → plan → tasks → implement → review → fix → verify → sign-off → PR
+   ▲           │ NOT_READY halts                                       │
+   └───────────┴────────── gaps / drift / failed gates ◄──────────────┘
 ```
+
+A cross-run memory + backlog on disk (`.loop/`) carries decisions and deferred
+items between runs, so each run starts from what the last one learned.
 
 One task → one focused change → one gate pass. **No big-bang generation.**
 
@@ -62,6 +65,8 @@ verb per-repo via `.loop.yml` → `gates.<verb>`. Add a stack by copying
 ## Roles (when your tool supports subagents)
 
 - **architect** — spec, plan, tasks (authoring only)
+- **spec-reviewer** — first-pass readiness review of the spec (read-only)
+- **explorer** — codebase reconnaissance before planning (read-only)
 - **implementer** — code + tests, one task at a time
 - **reviewer** — adversarial review (read-only)
 - **security-auditor** — CWE-aware weakness review (read-only)

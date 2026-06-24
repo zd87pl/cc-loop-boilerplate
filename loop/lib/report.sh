@@ -77,6 +77,11 @@ report_render() {
     echo "| --- | --- |"
     state_get_raw '.models // {}' | jq -r 'to_entries[] | "| \(.key) | \(.value) |"'
     echo
+    echo "## Spec readiness (first-pass review)"
+    echo
+    echo "- **Verdict:** $(state_get '.spec.readiness // "n/a"')   •   **Risk class:** $(state_get '.spec.risk_class // "n/a"')   •   **Effective coverage bar:** $(state_get '.config.effective_coverage_threshold // "-"')"
+    if [ -f "$RUN_DIR/spec-review.md" ]; then echo; cat "$RUN_DIR/spec-review.md"; fi
+    echo
     echo "## Stages"
     echo
     echo "| # | Stage | Owner | Gate | Status | Attempts |"
@@ -105,6 +110,16 @@ report_render() {
     if [ "${n:-0}" -eq 0 ]; then echo "_none_"; else
       state_get_raw '.clarifications' | jq -r '.[] | "- " + .'
     fi
+    echo
+    echo "## Change walkthrough (comprehension)"
+    echo
+    if [ -f "$RUN_DIR/walkthrough.md" ]; then cat "$RUN_DIR/walkthrough.md"; else echo "_not generated_"; fi
+    echo
+    echo "## Carried-forward backlog (cross-run)"
+    echo
+    if [ -n "${BACKLOG_FILE:-}" ] && [ -f "$BACKLOG_FILE" ]; then
+      tail -n 20 "$BACKLOG_FILE"
+    else echo "_empty_"; fi
     echo
     echo "## Data handling"
     echo
