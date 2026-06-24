@@ -73,6 +73,7 @@ USE_WORKTREE="$(cfg_bool '.use_worktree' true)"
 OPEN_PR="$(cfg_bool '.open_pr' true)"
 PR_DRAFT="$(cfg_bool '.pr_draft' true)"
 RUNS_DIR="$ROOT_DIR/$(cfg '.runs_dir' '.loop/runs')"
+SKILL_PREFIX="$(cfg '.skill_prefix' '')"   # e.g. "spec-loop:" when installed as a plugin
 HUMAN_GATES="$(cfg_list '.require_human_gates' | tr '\n' ' ')"
 export PROTECTED_BRANCHES="$(cfg_list '.protected_branches' | tr '\n' ' ')"
 [ -z "${PROTECTED_BRANCHES// /}" ] && export PROTECTED_BRANCHES="main master"
@@ -271,13 +272,13 @@ stage_prompt() { # stage_prompt <name>
   local n="$1"
   local common="Constitution: $ROOT_DIR/specs/constitution.md. Active spec: $SPEC_PATH (and sibling prd.md/adr-*.md). Run dir for artifacts: $RUN_DIR. If anything is ambiguous or under-specified, emit a line starting 'NEEDS CLARIFICATION:' and stop — do not guess."
   case "$n" in
-    spec)      echo "/spec-init $common Write the normalized EARS spec back to $SPEC_PATH and an open-questions list to $RUN_DIR/open-questions.md." ;;
-    plan)      echo "/plan $common Write the technical plan to $RUN_DIR/plan.md." ;;
-    tasks)     echo "/tasks $common Read $RUN_DIR/plan.md. Write an ordered, independently testable task list to $RUN_DIR/tasks.md." ;;
-    implement) echo "/implement $common Read $RUN_DIR/tasks.md. Implement the next unfinished task with a test, on branch $BRANCH in $REPO_DIR. Commit per task." ;;
-    review)    echo "/review $common Adversarially review the diff on $BRANCH and run a security pass. Write findings (with severities + CWE where applicable) to $RUN_DIR/findings.json as {\"findings\":[...]}, and write the count to $RUN_DIR/findings.count." ;;
-    fix)       echo "/fix $common Read $RUN_DIR/findings.json. Apply the smallest fixes that resolve the findings, re-running gates. Update $RUN_DIR/findings.count." ;;
-    verify)    echo "/verify $common Build the SPEC/PRD/ADR ⇄ code ⇄ test traceability matrix to $RUN_DIR/traceability.md, report drift and coverage. Do not edit code." ;;
+    spec)      echo "/${SKILL_PREFIX}spec-init $common Write the normalized EARS spec back to $SPEC_PATH and an open-questions list to $RUN_DIR/open-questions.md." ;;
+    plan)      echo "/${SKILL_PREFIX}plan $common Write the technical plan to $RUN_DIR/plan.md." ;;
+    tasks)     echo "/${SKILL_PREFIX}tasks $common Read $RUN_DIR/plan.md. Write an ordered, independently testable task list to $RUN_DIR/tasks.md." ;;
+    implement) echo "/${SKILL_PREFIX}implement $common Read $RUN_DIR/tasks.md. Implement the next unfinished task with a test, on branch $BRANCH in $REPO_DIR. Commit per task." ;;
+    review)    echo "/${SKILL_PREFIX}review $common Adversarially review the diff on $BRANCH and run a security pass. Write findings (with severities + CWE where applicable) to $RUN_DIR/findings.json as {\"findings\":[...]}, and write the count to $RUN_DIR/findings.count." ;;
+    fix)       echo "/${SKILL_PREFIX}fix $common Read $RUN_DIR/findings.json. Apply the smallest fixes that resolve the findings, re-running gates. Update $RUN_DIR/findings.count." ;;
+    verify)    echo "/${SKILL_PREFIX}verify $common Build the SPEC/PRD/ADR ⇄ code ⇄ test traceability matrix to $RUN_DIR/traceability.md, report drift and coverage. Do not edit code." ;;
   esac
 }
 

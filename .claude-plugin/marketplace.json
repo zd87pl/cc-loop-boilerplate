@@ -1,0 +1,12 @@
+{
+  "name": "cc-loop",
+  "owner": { "name": "platform-dx" },
+  "description": "Spec-driven engineering-loop tooling for Claude Code.",
+  "plugins": [
+    {
+      "name": "spec-loop",
+      "source": ".",
+      "description": "Specify -> plan -> tasks -> implement -> review -> fix -> verify, with deterministic gates, branch isolation, secret-scanning, caps, and human sign-off. Never auto-merges."
+    }
+  ]
+}

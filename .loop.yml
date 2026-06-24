@@ -12,6 +12,8 @@
 spec_dir: specs/                 # directory holding SPEC / PRD / ADR markdown
 spec_glob: "**/spec.md"          # how to find the active spec under spec_dir
                                  # (the loop operates on one feature/spec at a time)
+skill_prefix: ""                 # "" expects bare /spec-init (vendored mode);
+                                 # set "spec-loop:" when installed as a plugin
 
 # ---------------------------------------------------------------------------
 # Branch & worktree safety
