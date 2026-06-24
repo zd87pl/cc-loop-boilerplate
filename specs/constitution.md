@@ -1,0 +1,135 @@
+# Project Constitution
+
+This document is the **supreme contract** for the spec-driven engineering loop.
+Every stage, subagent, hook, and adapter in this repository is subordinate to
+the rules below. When any instruction (a prompt, a SKILL, an ADR, a reviewer
+comment) conflicts with this constitution, the constitution wins.
+
+The rules are written in **EARS** (Easy Approach to Requirements Syntax) so each
+is a single, individually testable claim. See `specs/templates/spec.md` for the
+EARS forms. Rules are identified `CON-NNN` and may be cited from skills, agents,
+and the verifier's traceability matrix.
+
+> Precedence, highest to lowest: **Constitution → SPEC → PRD → ADR → Plan →
+> Tasks → Code**. Code remains the source of truth for *behavior*; the
+> SPEC/PRD/ADR set remains the contract that behavior is generated against and
+> checked back against.
+
+---
+
+## Principles (the *why*)
+
+- **The spec is the contract.** Implementation is generated *against* the
+  SPEC/PRD/ADR and verified *back against* them. The spec drives generation and
+  review; it does not replace the codebase.
+- **Flag, don't fabricate.** Ambiguity is surfaced, never guessed away.
+- **Small, reviewable increments.** One task → one focused change → one gate
+  pass. Big-bang generation is a known anti-pattern and is forbidden.
+- **Determinism over vibes.** Quality is enforced by scripts and hooks the model
+  cannot opt out of, not by polite requests in a prompt.
+- **Humans own sign-off and merge.** The machine proposes; a person disposes.
+- **Portable and polyglot.** No stack assumptions leak outside `adapters/`.
+- **Observable and auditable.** Every run can be reproduced and reviewed.
+
+---
+
+## Rules (EARS)
+
+### Spec as contract
+
+- **CON-001** The system shall treat the SPEC, PRD, and ADR set as the contract
+  for any change.
+- **CON-002** While generating any artifact, the agent shall trace every unit of
+  work to at least one SPEC/PRD/ADR requirement.
+- **CON-003** If code implements behavior that no requirement asks for, then the
+  verifier shall report it as *drift* and the change shall not pass verification
+  until the drift is removed or a requirement is added by a human.
+- **CON-004** If a plan or implementation decision conflicts with an ADR, then
+  the agent shall halt and emit `NEEDS CLARIFICATION` rather than override the
+  ADR.
+
+### Clarification over fabrication
+
+- **CON-010** When a requirement is ambiguous, under-specified, or missing an
+  acceptance criterion, the agent shall emit a line beginning
+  `NEEDS CLARIFICATION:` and halt the current stage for a human.
+- **CON-011** The agent shall never invent requirements, public APIs, acceptance
+  criteria, or test oracles to make a stage pass.
+
+### Increments
+
+- **CON-020** While implementing, the agent shall prefer the smallest change that
+  satisfies exactly one task.
+- **CON-021** When a task is implemented, the agent shall write or update at
+  least one test that proves the task's acceptance check before the task is
+  considered done.
+- **CON-022** The system shall record one commit per task, referencing the task
+  identifier in the commit message.
+
+### Determinism and gates
+
+- **CON-030** The system shall enforce quality gates (format, lint, type-check,
+  test, build, secret-scan, security-scan) as scripts and hooks, never as model
+  instructions.
+- **CON-031** While any required gate is failing, the controller shall not
+  advance to a human pre-merge gate.
+- **CON-032** Where a coverage threshold is configured, if a change lowers line
+  coverage below that threshold, then verification shall fail.
+
+### Safety, branches, and secrets
+
+- **CON-040** The system shall operate only on a dedicated worktree or feature
+  branch whose name carries the configured prefix.
+- **CON-041** The system shall never commit to, push to, force-push to, or merge
+  a protected branch.
+- **CON-042** The system shall never run history-rewriting or destructive git
+  operations (`push --force`, `reset --hard` on shared refs, `clean -fdx` of the
+  worktree root, branch deletion of protected branches).
+- **CON-043** If a secret or credential is detected in a file write or a command,
+  then the operation shall be denied (PreToolUse exit code 2).
+- **CON-044** The system shall never auto-merge; a human shall open or promote
+  the PR to ready.
+
+### Bounds
+
+- **CON-050** When the iteration count reaches `max_iterations`, the controller
+  shall stop and produce a partial-completion report rather than continue.
+- **CON-051** When cumulative model spend reaches `cost_ceiling_usd`, the
+  controller shall stop and report.
+- **CON-052** While the loop is running, if an iteration produces no measurable
+  progress (no stage advanced and no gate flipped to green), then the controller
+  shall halt to avoid spinning.
+
+### Human gates
+
+- **CON-060** When the spec has been normalized, the system shall require human
+  sign-off before any code is written (configurable; on by default).
+- **CON-061** Before opening a PR, the system shall require human sign-off on the
+  verifier's traceability matrix (configurable; on by default).
+
+### Roles and least privilege
+
+- **CON-070** Subagents that only inspect (`reviewer`, `security-auditor`,
+  `verifier`) shall be configured read-only and shall not be granted edit tools.
+- **CON-071** All file edits shall route through the `implementer` subagent or
+  the parent session so permission prompts and hooks are honored.
+
+### Observability and audit
+
+- **CON-080** After each stage, the controller shall append a structured event
+  (stage, result, duration, token usage, cost, git SHA) to the run log.
+- **CON-081** Every run shall produce an audit trail sufficient to reproduce it:
+  model strings, tool versions, config hash, and base + head git SHAs.
+
+### Data handling (GDPR-aware)
+
+- **CON-090** The system shall keep PII and secrets out of run logs and reports
+  via the configured redaction patterns.
+- **CON-091** The system shall document exactly what data leaves the machine (the
+  content sent to the model API) and shall keep all other processing local.
+- **CON-092** The system shall keep `runs_dir` out of version control by default.
+
+---
+
+*Extend this file per-org. Keep every addition in EARS form and give it a
+`CON-NNN` identifier so it remains individually testable and citable.*
