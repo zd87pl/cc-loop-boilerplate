@@ -30,7 +30,8 @@ with a **human owning sign-off and merge**.
 ## Quickstart
 
 ```sh
-make doctor     # check prerequisites + configuration
+make setup      # interactive: checks the Claude CLI + deps, wires the repo, smoke-tests
+make doctor     # read-only: prerequisite + configuration status
 make selftest   # dry-run the loop over the bundled example (no model calls, no cost)
 make eval       # assert the guardrails actually fire (deterministic; no model calls)
 make loop SPEC=specs/000-example   # run for real (needs `claude` auth)
@@ -71,7 +72,7 @@ specs/              constitution.md, templates/, and one dir per feature
 adapters/           detect.sh + stacks/<lang>.sh (six-verb gate contract)
 loop/               run.sh controller, state.schema.json, lib/
 .loop.yml           the per-repo config you edit
-Makefile            make doctor | selftest | eval | spec-lint | loop | gates
+Makefile            make setup | doctor | selftest | eval | loop | gates
 .github/            PR template + CI (gate suite + deterministic evals)
 scripts/            install.sh / uninstall.sh / spec-lint.sh (deterministic spec gate)
 evals/              make eval — deterministic guardrail assertions (no model calls)

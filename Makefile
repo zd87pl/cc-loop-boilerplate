@@ -4,13 +4,16 @@ SHELL := /bin/bash
 SPEC  ?= specs/000-example
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor selftest dry-run loop new-spec fmt gates memory backlog eval spec-lint \
+.PHONY: help setup doctor selftest dry-run loop new-spec fmt gates memory backlog eval spec-lint \
         spec plan tasks implement review fix verify install uninstall clean clean-all
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}' $(MAKEFILE_LIST)
 
-doctor: ## Report prerequisite + configuration status
+setup: ## Interactive first-run setup: check deps, wire the repo, smoke test
+	@bash scripts/setup.sh
+
+doctor: ## Report prerequisite + configuration status (read-only)
 	@bash scripts/doctor.sh
 
 selftest: ## Dry-run the loop against the bundled example (no model calls)

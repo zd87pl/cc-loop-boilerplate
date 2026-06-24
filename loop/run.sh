@@ -70,7 +70,7 @@ config_load "$ROOT_DIR/.loop.yml"
 SPEC_DIR="${SPEC_DIR_ARG:-$(cfg '.spec_dir' 'specs/')}"
 BRANCH_PREFIX="$(cfg '.branch_prefix' 'loop/')"
 MAX_ITER="$(cfg '.max_iterations' '6')"
-export COST_CEILING_USD="$(cfg '.cost_ceiling_usd' '5.00')"
+export COST_CEILING_USD="${LOOP_COST_CEILING_USD:-$(cfg '.cost_ceiling_usd' '5.00')}"
 USE_WORKTREE="$(cfg_bool '.use_worktree' true)"
 OPEN_PR="$(cfg_bool '.open_pr' true)"
 PR_DRAFT="$(cfg_bool '.pr_draft' true)"
@@ -96,7 +96,8 @@ export MEMORY_ENABLED="${LOOP_MEMORY_ENABLED:-$(cfg_bool '.memory.enabled' true)
 export MEMORY_FILE="${LOOP_MEMORY_FILE:-$ROOT_DIR/$(cfg '.memory.file' '.loop/memory.md')}"
 export BACKLOG_FILE="${LOOP_BACKLOG_FILE:-$ROOT_DIR/$(cfg '.memory.backlog_file' '.loop/backlog.md')}"
 
-model_for() { cfg ".models.$1" "${2:-sonnet}"; }
+# LOOP_FORCE_MODEL overrides every stage's model (cheap proof/CI runs, e.g. haiku).
+model_for() { [ -n "${LOOP_FORCE_MODEL:-}" ] && { printf '%s' "$LOOP_FORCE_MODEL"; return; }; cfg ".models.$1" "${2:-sonnet}"; }
 gate_type()  { case " $HUMAN_GATES " in *" $1 "*) echo human ;; *) echo auto ;; esac; }
 
 # ---------------------------------------------------------------------------
@@ -314,7 +315,7 @@ stage_prompt() { # stage_prompt <name>
   local n="$1"
   local common="Constitution: $ROOT_DIR/specs/constitution.md. Active spec: $SPEC_PATH (and sibling prd.md/adr-*.md). Run dir for artifacts: $RUN_DIR. Cross-run memory (prior decisions + carried backlog): $MEMORY_FILE — read it for context. If anything is ambiguous or under-specified, emit a line starting 'NEEDS CLARIFICATION:' and stop — do not guess."
   case "$n" in
-    spec)        echo "/${SKILL_PREFIX}spec-init $common Write the normalized EARS spec back to $SPEC_PATH and an open-questions list to $RUN_DIR/open-questions.md." ;;
+    spec)        echo "/${SKILL_PREFIX}spec-init $common Write the normalized EARS spec to $RUN_DIR/spec.normalized.md and an open-questions list to $RUN_DIR/open-questions.md. Do NOT modify the input spec file in place." ;;
     spec_review) echo "/${SKILL_PREFIX}spec-review $common Score the spec across the five readiness dimensions, classify risk, and write the scorecard to $RUN_DIR/spec-review.md, a single verdict token (READY|CAVEATS|NOT_READY) to $RUN_DIR/spec-review.verdict, a single risk token (low|standard|sensitive) to $RUN_DIR/spec-review.riskclass, and $RUN_DIR/spec-review.json." ;;
     explore)     echo "/${SKILL_PREFIX}explore $common Survey the existing codebase and write a concise context map (relevant modules with path:symbol, build/test conventions, integration points/contracts, prior art to reuse, top risks) to $RUN_DIR/context-map.md." ;;
     plan)        echo "/${SKILL_PREFIX}plan $common Read $RUN_DIR/context-map.md. Write the technical plan to $RUN_DIR/plan.md." ;;
