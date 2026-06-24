@@ -1,0 +1,52 @@
+name: loop-gates
+
+# Defense in depth: mirror the local quality gates in CI. The gates run through
+# the same adapters/ the loop uses, so behavior matches `make gates` locally.
+#
+# Adapters skip gracefully when a toolchain is absent, so this workflow is green
+# by default. To make it real for your stack, add the relevant language setup
+# step(s) before "Quality gates" (examples are commented below).
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Add your stack's toolchain here so the gates actually run, e.g.: ---
+      # - uses: actions/setup-node@v4
+      #   with: { node-version: 20, cache: npm }
+      # - uses: actions/setup-go@v5
+      #   with: { go-version: stable }
+      # - uses: actions/setup-python@v5
+      #   with: { python-version: '3.12' }
+
+      - name: Make scripts executable
+        run: chmod +x adapters/detect.sh adapters/stacks/*.sh loop/run.sh scripts/*.sh
+
+      - name: Detect stacks
+        id: detect
+        run: |
+          stacks="$(bash adapters/detect.sh . | tr '\n' ' ')"
+          echo "stacks=$stacks" >> "$GITHUB_OUTPUT"
+          echo "Detected stacks: ${stacks:-<none>}"
+
+      - name: Format check (format in place, then fail on diff)
+        run: |
+          for s in ${{ steps.detect.outputs.stacks }}; do
+            bash "adapters/stacks/$s.sh" fmt || true
+          done
+          git diff --exit-code || {
+            echo "::error::working tree changed after formatting — run 'make fmt' and commit";
+            exit 1;
+          }
+
+      - name: Quality gates (lint, typecheck, test, build, securityscan)
+        run: make gates
