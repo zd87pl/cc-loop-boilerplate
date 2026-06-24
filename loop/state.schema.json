@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/zd87pl/cc-loop-boilerplate/loop/state.schema.json",
+  "title": "Spec-driven loop run state",
+  "description": "Resumable, auditable state for one run of the engineering loop.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["run_id", "schema_version", "status", "created_at", "stages"],
+  "properties": {
+    "run_id": { "type": "string", "description": "Unique id for this run." },
+    "schema_version": { "type": "integer", "const": 1 },
+    "status": {
+      "description": "Overall run state.",
+      "enum": ["pending", "running", "blocked", "needs_clarification", "halted", "partial", "completed", "failed"]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "dry_run": { "type": "boolean" },
+    "halt_reason": { "type": ["string", "null"] },
+    "current_stage": { "type": ["string", "null"] },
+    "iteration": { "type": "integer", "minimum": 0, "description": "review<->fix cycles consumed." },
+    "spec": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "dir": { "type": "string" },
+        "path": { "type": "string" },
+        "id": { "type": ["string", "null"] }
+      }
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "base_branch": { "type": "string" },
+        "branch": { "type": "string" },
+        "worktree": { "type": ["string", "null"] },
+        "base_sha": { "type": ["string", "null"] },
+        "head_sha": { "type": ["string", "null"] }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "hash": { "type": "string", "description": "Hash of .loop.yml for reproducibility." },
+        "max_iterations": { "type": "integer", "minimum": 1 },
+        "cost_ceiling_usd": { "type": "number", "minimum": 0 }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Resolved model alias/string per stage."
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "spent_usd": { "type": "number", "minimum": 0 },
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "stages": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/stage" }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/gate" }
+    },
+    "clarifications": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Open NEEDS CLARIFICATION markers awaiting a human."
+    },
+    "pr": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "opened": { "type": "boolean" },
+        "draft": { "type": "boolean" },
+        "url": { "type": ["string", "null"] }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Reproducibility header: tool versions, OS, etc."
+    }
+  },
+  "definitions": {
+    "stage": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "status"],
+      "properties": {
+        "name": { "enum": ["spec", "plan", "tasks", "implement", "review", "fix", "verify"] },
+        "owner": { "type": "string", "description": "Subagent that owns the stage." },
+        "gate": { "enum": ["auto", "human"] },
+        "status": { "enum": ["pending", "running", "passed", "failed", "blocked", "skipped"] },
+        "attempts": { "type": "integer", "minimum": 0 },
+        "started_at": { "type": ["string", "null"] },
+        "ended_at": { "type": ["string", "null"] },
+        "artifact": { "type": ["string", "null"], "description": "Path to the stage's output artifact." }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["green", "red", "skipped", "unknown"] },
+        "code": { "type": "integer" },
+        "command": { "type": "string" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
