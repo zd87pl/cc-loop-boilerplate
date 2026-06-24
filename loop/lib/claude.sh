@@ -34,7 +34,9 @@ claude_stage() {
   # Pass the prompt on STDIN, never as a trailing positional: --allowedTools is a
   # variadic flag and would otherwise swallow the prompt as tool-rule arguments
   # (then the CLI errors "Input must be provided ... as a prompt arg").
-  out="$(printf '%s' "$prompt" | "$CLAUDE_BIN" "${args[@]}" 2>"$errf")"; rc=$?
+  # Run in REPO_DIR (the worktree) so the model's edits land in the isolated tree,
+  # not the source checkout.
+  out="$(printf '%s' "$prompt" | ( cd "${REPO_DIR:-.}" && "$CLAUDE_BIN" "${args[@]}" ) 2>"$errf")"; rc=$?
 
   if [ $rc -ne 0 ]; then
     warn "claude exited $rc for stage '$stage': $(head -c 400 "$errf")"
