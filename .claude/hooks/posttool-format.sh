@@ -1,27 +1,24 @@
 #!/usr/bin/env bash
-# PostToolUse(Edit|Write) — best-effort format the EDITED FILE in place using
-# whatever formatter is on PATH. Never blocks: always exits 0. Only touches code
-# files (not markdown/yaml/json) to avoid noisy reformatting.
+# PostToolUse(Edit|Write) — best-effort format the tree via the stack adapters.
+# All language/stack knowledge stays in adapters/ (the `fmt` verb); none lives
+# here. Never blocks: always exits 0. Disable with LOOP_POSTTOOL_FORMAT=0.
+#
+# Note: formatters are idempotent, so on an already-formatted tree this only
+# changes the file you just edited. On large or unformatted repos you may prefer
+# to disable this and rely on `make fmt` / the CI format check instead.
 set -uo pipefail
-input="$(cat)"
+cat >/dev/null   # consume the hook's stdin payload
 
-file=""
-command -v jq >/dev/null 2>&1 && file="$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)"
-[ -n "$file" ] && [ -f "$file" ] || exit 0
+[ "${LOOP_POSTTOOL_FORMAT:-1}" = "0" ] && exit 0
 
-h() { command -v "$1" >/dev/null 2>&1; }
+ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+ADAPTERS="${CLAUDE_PLUGIN_ROOT:-$ROOT}/adapters"
+[ -d "$ADAPTERS" ] || ADAPTERS="$ROOT/adapters"
+[ -d "$ADAPTERS" ] || exit 0
 
-case "$file" in
-  *.py)
-    if h ruff; then ruff format "$file" >/dev/null 2>&1
-    elif h black; then black -q "$file" >/dev/null 2>&1; fi ;;
-  *.js|*.jsx|*.ts|*.tsx|*.mjs|*.cjs)
-    if [ -x node_modules/.bin/prettier ]; then node_modules/.bin/prettier --write "$file" >/dev/null 2>&1
-    elif h prettier; then prettier --write "$file" >/dev/null 2>&1; fi ;;
-  *.go) h gofmt   && gofmt -w "$file" >/dev/null 2>&1 ;;
-  *.rs) h rustfmt && rustfmt "$file" >/dev/null 2>&1 ;;
-  *.rb) h rubocop && rubocop -A "$file" >/dev/null 2>&1 ;;
-  *.cs) h dotnet  && dotnet format --include "$file" >/dev/null 2>&1 ;;
-esac
+for s in $(bash "$ADAPTERS/detect.sh" "$ROOT" 2>/dev/null); do
+  [ -f "$ADAPTERS/stacks/$s.sh" ] || continue
+  ( cd "$ROOT" && bash "$ADAPTERS/stacks/$s.sh" fmt ) >/dev/null 2>&1 || true
+done
 
 exit 0
