@@ -7,15 +7,17 @@
 #   (default)   interactive and friendly
 #   --yes, -y   non-interactive; safe defaults; never auto-installs system packages
 #   --check     status only (no changes, no smoke test)
+#   --live      also make one tiny real model call to verify auth + network (~$0.01)
 #   --brief     less hand-holding
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-ASSUME_YES=false; CHECK_ONLY=false; BRIEF=false
+ASSUME_YES=false; CHECK_ONLY=false; BRIEF=false; LIVE=false
 for a in "$@"; do
   case "$a" in
     --yes|-y) ASSUME_YES=true ;;
     --check)  CHECK_ONLY=true ;;
+    --live)   LIVE=true ;;
     --brief)  BRIEF=true ;;
     -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $a (try --help)" >&2; exit 64 ;;
@@ -136,6 +138,21 @@ if have claude; then
   say "Logged in? If not, run 'claude' once and '/login'. Per-stage models live in .loop.yml."
 else
   no "Claude Code CLI not found (install above), then re-run setup."
+fi
+
+# Opt-in live check: one tiny real model call proves auth + network actually work
+# (what 'claude --version' cannot). This is the failure that blocks a first run.
+if $LIVE && have claude; then
+  hdr "3b. Live model check (one tiny call, ~\$0.01)"
+  if out="$(claude -p --output-format json --model haiku 'Reply with exactly: OK' 2>/tmp/loop-live.$$)"; then
+    res="$(printf '%s' "$out" | jq -r '.result // empty' 2>/dev/null)"
+    cost="$(printf '%s' "$out" | jq -r '.total_cost_usd // 0' 2>/dev/null)"
+    if [ -n "$res" ]; then ok "model responded - auth + network OK (cost \$$cost)"
+    else no "unexpected response - check 'claude' login (run 'claude' then /login)"; fi
+  else no "live call failed - check 'claude' login and your network:"; head -c 200 /tmp/loop-live.$$ >&2; fi
+  rm -f /tmp/loop-live.$$
+elif $LIVE; then
+  wn "--live requested but the Claude CLI is missing"
 fi
 
 $CHECK_ONLY && summary_and_exit

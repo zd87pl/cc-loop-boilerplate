@@ -70,7 +70,7 @@ config_load "$ROOT_DIR/.loop.yml"
 SPEC_DIR="${SPEC_DIR_ARG:-$(cfg '.spec_dir' 'specs/')}"
 BRANCH_PREFIX="$(cfg '.branch_prefix' 'loop/')"
 MAX_ITER="$(cfg '.max_iterations' '6')"
-export COST_CEILING_USD="$(cfg '.cost_ceiling_usd' '5.00')"
+export COST_CEILING_USD="${LOOP_COST_CEILING_USD:-$(cfg '.cost_ceiling_usd' '5.00')}"
 USE_WORKTREE="$(cfg_bool '.use_worktree' true)"
 OPEN_PR="$(cfg_bool '.open_pr' true)"
 PR_DRAFT="$(cfg_bool '.pr_draft' true)"
@@ -96,7 +96,8 @@ export MEMORY_ENABLED="${LOOP_MEMORY_ENABLED:-$(cfg_bool '.memory.enabled' true)
 export MEMORY_FILE="${LOOP_MEMORY_FILE:-$ROOT_DIR/$(cfg '.memory.file' '.loop/memory.md')}"
 export BACKLOG_FILE="${LOOP_BACKLOG_FILE:-$ROOT_DIR/$(cfg '.memory.backlog_file' '.loop/backlog.md')}"
 
-model_for() { cfg ".models.$1" "${2:-sonnet}"; }
+# LOOP_FORCE_MODEL overrides every stage's model (cheap proof/CI runs, e.g. haiku).
+model_for() { [ -n "${LOOP_FORCE_MODEL:-}" ] && { printf '%s' "$LOOP_FORCE_MODEL"; return; }; cfg ".models.$1" "${2:-sonnet}"; }
 gate_type()  { case " $HUMAN_GATES " in *" $1 "*) echo human ;; *) echo auto ;; esac; }
 
 # ---------------------------------------------------------------------------
