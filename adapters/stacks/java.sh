@@ -23,10 +23,10 @@ build_tool_run() {
   done
   if [ -f pom.xml ]; then
     local m; m="$(mvn_cmd)"
-    [ -n "$m" ] && run "$m" "${mvn_args[@]}" || skip "maven not available (install maven or add mvnw)"
+    if [ -n "$m" ]; then run "$m" "${mvn_args[@]}"; else skip "maven not available (install maven or add mvnw)"; fi
   elif is_gradle; then
     local g; g="$(gradle_cmd)"
-    [ -n "$g" ] && run "$g" "${gradle_args[@]}" || skip "gradle not available (install gradle or add gradlew)"
+    if [ -n "$g" ]; then run "$g" "${gradle_args[@]}"; else skip "gradle not available (install gradle or add gradlew)"; fi
   else
     skip "no pom.xml or build.gradle found"
   fi

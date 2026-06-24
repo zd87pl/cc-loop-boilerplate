@@ -61,6 +61,6 @@ gates_run_suite() {
 
 # gates_all_green — true if no gate is red in the current state.
 gates_all_green() {
-  local reds; reds="$(state_get_raw '.gates' | jq -r '[to_entries[] | select(.value.status=="red")] | length')"
+  local reds; reds="$(state_get_raw '.gates // {}' | jq -r '[to_entries[] | select(.value.status=="red")] | length')"
   [ "${reds:-0}" -eq 0 ]
 }

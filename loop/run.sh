@@ -242,10 +242,10 @@ if $DRY_RUN; then
 elif $USE_WORKTREE; then
   WORKTREE="$RUNS_DIR/worktrees/$(slugify "$BRANCH")"
   mkdir -p "$(dirname "$WORKTREE")"
-  git_setup_worktree "$BRANCH" "$WORKTREE" || die "failed to create worktree"
+  git_setup_worktree "$BRANCH" "$WORKTREE" "$BASE_BRANCH" || die "failed to create worktree"
   REPO_DIR="$WORKTREE"; state_set_str '.git.worktree' "$WORKTREE"
 else
-  git_make_feature_branch "$BRANCH"
+  git_make_feature_branch "$BRANCH" "$BASE_BRANCH"
   git -C "$ROOT_DIR" checkout "$BRANCH" >/dev/null 2>&1 || die "could not checkout $BRANCH"
   REPO_DIR="$ROOT_DIR"
 fi

@@ -44,8 +44,8 @@ claude_stage() {
   cost="$(printf '%s' "$out" | jq -r '.total_cost_usd // 0'        2>/dev/null || echo 0)"
   itok="$(printf '%s' "$out" | jq -r '.usage.input_tokens // 0'    2>/dev/null || echo 0)"
   otok="$(printf '%s' "$out" | jq -r '.usage.output_tokens // 0'   2>/dev/null || echo 0)"
-  text="$(printf '%s' "$out" | jq -r '.result // .text // ""'      2>/dev/null)"
-  [ -z "$text" ] && text="$out"
+  text="$(printf '%s' "$out" | jq -r 'if has("result") then .result elif has("text") then .text else "" end' 2>/dev/null)"
+  printf '%s' "$out" | jq -e . >/dev/null 2>&1 || text="$out"   # fall back to raw only on non-JSON
 
   cost_add "$cost" "$itok" "$otok"
   printf '%s' "$text"

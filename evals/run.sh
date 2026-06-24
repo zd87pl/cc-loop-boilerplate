@@ -58,6 +58,27 @@ rc="$(printf '{"tool_name":"Write","tool_input":{"content":"token=%s end"}}' "$a
 rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}')"
 [ "$rc" = "2" ] && ok "force-push vetoed (exit 2)" || no "destructive veto" "exit=$rc"
 
+# 7b) a private-key block is vetoed (regression: the pattern started with '-' so
+#     grep ate it as a flag and the check failed open). Fragments keep this file
+#     itself unmatched.
+pk="-----BEGIN"" RSA PRIVATE KEY-----"
+rc="$(printf '{"tool_name":"Write","tool_input":{"content":"%s body"}}' "$pk" | bash .claude/hooks/pretool-guard.sh >/dev/null 2>&1; echo $?)"
+[ "$rc" = "2" ] && ok "private-key write vetoed (exit 2)" || no "private-key veto" "exit=$rc"
+
+# 7c) --force-with-lease alone is allowed; a compound with a bare --force is denied
+rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git push --force-with-lease origin feat"}}')"
+[ "$rc" = "0" ] && ok "--force-with-lease allowed (exit 0)" || no "lease allowed" "exit=$rc"
+rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git push --force-with-lease origin a && git push --force origin main"}}')"
+[ "$rc" = "2" ] && ok "compound --force behind lease vetoed (exit 2)" || no "compound force" "exit=$rc"
+
+# 7d) git clean with flags in -d -f order is still vetoed
+rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git clean -df ."}}')"
+[ "$rc" = "2" ] && ok "git clean -df vetoed (exit 2)" || no "git clean veto" "exit=$rc"
+
+# 7e) rm with -fr flag order is still vetoed
+rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm -fr /tmp/x"}}')"
+[ "$rc" = "2" ] && ok "rm -fr vetoed (exit 2)" || no "rm -fr veto" "exit=$rc"
+
 # 8) protected-branch guard: main refused, a feature branch allowed
 if ( . loop/lib/common.sh; . loop/lib/git.sh; PROTECTED_BRANCHES="main master"; git_is_protected main && ! git_is_protected loop/x ); then
   ok "protected-branch guard (main refused, feature allowed)"

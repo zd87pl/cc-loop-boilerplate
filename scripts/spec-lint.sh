@@ -37,7 +37,7 @@ dups="$(printf '%s\n' "$req_ids" | sort | uniq -d | tr '\n' ' ')"
 while IFS= read -r row; do
   [ -n "$row" ] || continue
   id="$(printf '%s' "$row" | grep -oE 'REQ-[0-9]+' | head -1)"
-  last="$(printf '%s' "$row" | awk -F'|' '{c=$(NF-1); gsub(/^[ \t]+|[ \t]+$/,"",c); print c}')"
+  last="$(printf '%s' "$row" | sed -E 's/[[:space:]]*\|[[:space:]]*$//' | awk -F'|' '{c=$NF; gsub(/^[ \t]+|[ \t]+$/,"",c); print c}')"
   case "$last" in
     ""|"-"|"TODO"|"TBD"|"<how proven>") err "$id has no acceptance check (last column empty/placeholder)" ;;
   esac
