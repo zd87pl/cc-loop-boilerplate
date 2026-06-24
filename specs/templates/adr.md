@@ -8,12 +8,12 @@ A plan or implementation that conflicts with an accepted ADR must halt with
 
 # ADR-<NNN>: <Short decision title>
 
-| Field     | Value                                            |
-| --------- | ------------------------------------------------ |
-| Status    | proposed \| accepted \| superseded by ADR-<NNN>  |
-| Date      | <YYYY-MM-DD>                                      |
-| Deciders  | <names>                                           |
-| Related   | SPEC-<NNN>, PRD-<NNN>                             |
+| Field    | Value                                           |
+| -------- | ----------------------------------------------- |
+| Status   | proposed \| accepted \| superseded by ADR-<NNN> |
+| Date     | <YYYY-MM-DD>                                    |
+| Deciders | <names>                                         |
+| Related  | SPEC-<NNN>, PRD-<NNN>                           |
 
 ## Context
 
@@ -28,12 +28,15 @@ enough to test compliance against it.
 ## Consequences
 
 **Positive**
+
 - <consequence>
 
 **Negative / trade-offs**
+
 - <consequence>
 
 **Neutral**
+
 - <consequence>
 
 ## Alternatives considered

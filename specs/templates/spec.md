@@ -18,14 +18,14 @@ the spec stage for a human (CON-010). Do not guess.
 
 # SPEC: <Feature title>
 
-| Field        | Value                                   |
-| ------------ | --------------------------------------- |
-| Spec ID      | SPEC-<NNN>                              |
-| Status       | draft \| in-review \| approved          |
-| Owner        | <name / team>                           |
-| Related PRD  | <prd.md or link>                        |
-| Related ADRs | <adr-001.md, ...>                       |
-| Last updated | <YYYY-MM-DD>                            |
+| Field        | Value                          |
+| ------------ | ------------------------------ |
+| Spec ID      | SPEC-<NNN>                     |
+| Status       | draft \| in-review \| approved |
+| Owner        | <name / team>                  |
+| Related PRD  | <prd.md or link>               |
+| Related ADRs | <adr-001.md, ...>              |
+| Last updated | <YYYY-MM-DD>                   |
 
 ## 1. Context
 
@@ -35,9 +35,11 @@ the user-visible behavior this spec governs.
 ## 2. Scope
 
 **In scope**
+
 - <bullet>
 
 **Out of scope**
+
 - <bullet>
 
 ## 3. Requirements (EARS)
@@ -46,23 +48,23 @@ Each requirement has a stable `REQ-NNN` id, an EARS type, and an acceptance
 check. Ids are referenced by tasks, tests, and the verifier's traceability
 matrix — do not renumber once merged.
 
-| ID       | Type        | Requirement                                                        | Acceptance check |
-| -------- | ----------- | ------------------------------------------------------------------ | ---------------- |
-| REQ-001  | Ubiquitous  | The system shall <response>.                                       | <how proven>     |
-| REQ-002  | Event-driven| When <trigger>, the system shall <response>.                       | <how proven>     |
-| REQ-003  | State-driven| While <state>, the system shall <response>.                        | <how proven>     |
-| REQ-004  | Unwanted    | If <condition>, then the system shall <response>.                  | <how proven>     |
-| REQ-005  | Optional    | Where <feature included>, the system shall <response>.             | <how proven>     |
+| ID      | Type         | Requirement                                            | Acceptance check |
+| ------- | ------------ | ------------------------------------------------------ | ---------------- |
+| REQ-001 | Ubiquitous   | The system shall <response>.                           | <how proven>     |
+| REQ-002 | Event-driven | When <trigger>, the system shall <response>.           | <how proven>     |
+| REQ-003 | State-driven | While <state>, the system shall <response>.            | <how proven>     |
+| REQ-004 | Unwanted     | If <condition>, then the system shall <response>.      | <how proven>     |
+| REQ-005 | Optional     | Where <feature included>, the system shall <response>. | <how proven>     |
 
 ## 4. Acceptance criteria (concrete oracles)
 
 Worked examples a test can assert directly. Prefer input → expected-output pairs
 and explicit error cases.
 
-| # | Input / precondition | Expected result      | Covers   |
-| - | -------------------- | -------------------- | -------- |
-| 1 | <input>              | <output>             | REQ-001  |
-| 2 | <invalid input>      | <error behavior>     | REQ-004  |
+| #   | Input / precondition | Expected result  | Covers  |
+| --- | -------------------- | ---------------- | ------- |
+| 1   | <input>              | <output>         | REQ-001 |
+| 2   | <invalid input>      | <error behavior> | REQ-004 |
 
 ## 5. Non-functional requirements
 

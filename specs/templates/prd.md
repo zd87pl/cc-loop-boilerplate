@@ -6,13 +6,13 @@ testable detail. Unknowns become `NEEDS CLARIFICATION:` lines under §8.
 
 # PRD: <Feature title>
 
-| Field        | Value                          |
-| ------------ | ------------------------------ |
-| PRD ID       | PRD-<NNN>                      |
-| Status       | draft \| approved              |
-| Owner        | <name / team>                  |
-| Related SPEC | SPEC-<NNN>                     |
-| Last updated | <YYYY-MM-DD>                   |
+| Field        | Value             |
+| ------------ | ----------------- |
+| PRD ID       | PRD-<NNN>         |
+| Status       | draft \| approved |
+| Owner        | <name / team>     |
+| Related SPEC | SPEC-<NNN>        |
+| Last updated | <YYYY-MM-DD>      |
 
 ## 1. Problem
 

@@ -1,12 +1,12 @@
 # PRD: Duration-string parser
 
-| Field        | Value        |
-| ------------ | ------------ |
-| PRD ID       | PRD-000      |
-| Status       | approved     |
-| Owner        | platform-dx  |
-| Related SPEC | SPEC-000     |
-| Last updated | 2026-06-24   |
+| Field        | Value       |
+| ------------ | ----------- |
+| PRD ID       | PRD-000     |
+| Status       | approved    |
+| Owner        | platform-dx |
+| Related SPEC | SPEC-000    |
+| Last updated | 2026-06-24  |
 
 ## 1. Problem
 

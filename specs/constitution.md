@@ -11,16 +11,16 @@ EARS forms. Rules are identified `CON-NNN` and may be cited from skills, agents,
 and the verifier's traceability matrix.
 
 > Precedence, highest to lowest: **Constitution → SPEC → PRD → ADR → Plan →
-> Tasks → Code**. Code remains the source of truth for *behavior*; the
+> Tasks → Code**. Code remains the source of truth for _behavior_; the
 > SPEC/PRD/ADR set remains the contract that behavior is generated against and
 > checked back against.
 
 ---
 
-## Principles (the *why*)
+## Principles (the _why_)
 
-- **The spec is the contract.** Implementation is generated *against* the
-  SPEC/PRD/ADR and verified *back against* them. The spec drives generation and
+- **The spec is the contract.** Implementation is generated _against_ the
+  SPEC/PRD/ADR and verified _back against_ them. The spec drives generation and
   review; it does not replace the codebase.
 - **Flag, don't fabricate.** Ambiguity is surfaced, never guessed away.
 - **Small, reviewable increments.** One task → one focused change → one gate
@@ -42,7 +42,7 @@ and the verifier's traceability matrix.
 - **CON-002** While generating any artifact, the agent shall trace every unit of
   work to at least one SPEC/PRD/ADR requirement.
 - **CON-003** If code implements behavior that no requirement asks for, then the
-  verifier shall report it as *drift* and the change shall not pass verification
+  verifier shall report it as _drift_ and the change shall not pass verification
   until the drift is removed or a requirement is added by a human.
 - **CON-004** If a plan or implementation decision conflicts with an ADR, then
   the agent shall halt and emit `NEEDS CLARIFICATION` rather than override the
@@ -131,5 +131,5 @@ and the verifier's traceability matrix.
 
 ---
 
-*Extend this file per-org. Keep every addition in EARS form and give it a
-`CON-NNN` identifier so it remains individually testable and citable.*
+_Extend this file per-org. Keep every addition in EARS form and give it a
+`CON-NNN` identifier so it remains individually testable and citable._
