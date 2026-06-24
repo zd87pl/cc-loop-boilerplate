@@ -490,8 +490,8 @@ fi
 VERDICT=""; RISK=""
 if $SPEC_REVIEW_ENABLED; then
   stage_run spec_review || exit $?
-  VERDICT="$(tr -d '[:space:]' < "$RUN_DIR/spec-review.verdict" 2>/dev/null)"; [ -n "$VERDICT" ] || VERDICT="READY"
-  RISK="$(tr -d '[:space:]' < "$RUN_DIR/spec-review.riskclass" 2>/dev/null)"; [ -n "$RISK" ] || RISK="standard"
+  VERDICT="$( [ -f "$RUN_DIR/spec-review.verdict" ] && tr -d '[:space:]' < "$RUN_DIR/spec-review.verdict" )"; [ -n "$VERDICT" ] || VERDICT="READY"
+  RISK="$( [ -f "$RUN_DIR/spec-review.riskclass" ] && tr -d '[:space:]' < "$RUN_DIR/spec-review.riskclass" )"; [ -n "$RISK" ] || RISK="standard"
   state_set_str '.spec.readiness' "$VERDICT"
   state_set_str '.spec.risk_class' "$RISK"
   event "spec_review" "verdict" "$(jq -nc --arg v "$VERDICT" --arg r "$RISK" '{verdict:$v, risk_class:$r}')"
