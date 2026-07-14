@@ -6,6 +6,10 @@
 # Local, per-developer Claude Code settings (never shared).
 .claude/settings.local.json
 
+# Build / interpreter artifacts
+__pycache__/
+*.pyc
+
 # OS / editor noise
 .DS_Store
 *.swp

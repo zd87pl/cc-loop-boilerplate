@@ -54,7 +54,12 @@ git_make_feature_branch() {
 git_setup_worktree() {
   local branch="$1" path="$2" base="${3:-}"
   git_assert_safe_branch "$branch"
-  if git worktree list --porcelain 2>/dev/null | grep -Fq "worktree $path"; then
+  # Drop registrations whose directories are gone (e.g. a wiped runs dir);
+  # otherwise the reuse check below "finds" a worktree that no longer exists and
+  # re-adding its branch fails with "already used by worktree".
+  git worktree prune >/dev/null 2>&1 || true
+  # -x: match the whole porcelain line, so "$path" cannot prefix-match a longer path.
+  if git worktree list --porcelain 2>/dev/null | grep -Fxq "worktree $path"; then
     info "reusing worktree at $path"
   elif git show-ref --verify --quiet "refs/heads/$branch"; then
     git worktree add "$path" "$branch" >/dev/null && info "worktree added at $path"
