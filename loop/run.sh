@@ -96,8 +96,17 @@ export MEMORY_ENABLED="${LOOP_MEMORY_ENABLED:-$(cfg_bool '.memory.enabled' true)
 export MEMORY_FILE="${LOOP_MEMORY_FILE:-$ROOT_DIR/$(cfg '.memory.file' '.loop/memory.md')}"
 export BACKLOG_FILE="${LOOP_BACKLOG_FILE:-$ROOT_DIR/$(cfg '.memory.backlog_file' '.loop/backlog.md')}"
 
+# Per-stage default model tier — the single source of truth, so the model a
+# stage actually runs with always matches what seed_state records in state.json.
+stage_default_model() {
+  case "$1" in
+    spec|spec_review|plan|review|verify) echo opus ;;
+    explore)                             echo haiku ;;
+    *)                                   echo sonnet ;;
+  esac
+}
 # LOOP_FORCE_MODEL overrides every stage's model (cheap proof/CI runs, e.g. haiku).
-model_for() { [ -n "${LOOP_FORCE_MODEL:-}" ] && { printf '%s' "$LOOP_FORCE_MODEL"; return; }; cfg ".models.$1" "${2:-sonnet}"; }
+model_for() { [ -n "${LOOP_FORCE_MODEL:-}" ] && { printf '%s' "$LOOP_FORCE_MODEL"; return; }; cfg ".models.$1" "$(stage_default_model "$1")"; }
 gate_type()  { case " $HUMAN_GATES " in *" $1 "*) echo human ;; *) echo auto ;; esac; }
 
 # ---------------------------------------------------------------------------
@@ -173,11 +182,11 @@ seed_state() {
     --arg base_branch "$BASE_BRANCH" --arg branch "$BRANCH" \
     --arg cfg_hash "$(config_hash)" --argjson max_iter "$MAX_ITER" \
     --argjson cost_ceil "$COST_CEILING_USD" \
-    --arg m_spec "$(model_for spec opus)" --arg m_plan "$(model_for plan opus)" \
-    --arg m_specreview "$(model_for spec_review opus)" --arg m_explore "$(model_for explore haiku)" \
-    --arg m_tasks "$(model_for tasks sonnet)" --arg m_impl "$(model_for implement sonnet)" \
-    --arg m_review "$(model_for review opus)" --arg m_fix "$(model_for fix sonnet)" \
-    --arg m_verify "$(model_for verify opus)" \
+    --arg m_spec "$(model_for spec)" --arg m_plan "$(model_for plan)" \
+    --arg m_specreview "$(model_for spec_review)" --arg m_explore "$(model_for explore)" \
+    --arg m_tasks "$(model_for tasks)" --arg m_impl "$(model_for implement)" \
+    --arg m_review "$(model_for review)" --arg m_fix "$(model_for fix)" \
+    --arg m_verify "$(model_for verify)" \
     --arg os "$(uname -s)" --arg versions "$(report_tool_versions)" \
     --argjson stages "$stages" \
     '{

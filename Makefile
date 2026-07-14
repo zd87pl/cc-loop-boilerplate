@@ -78,7 +78,11 @@ backlog: ## Show the carried-forward backlog
 	@cat .loop/backlog.md 2>/dev/null || echo "backlog empty (.loop/backlog.md)"
 
 clean: ## Remove per-run artifacts (keeps cross-run memory + backlog)
-	@rm -rf .loop/runs .loop/worktrees && echo "removed .loop/runs + .loop/worktrees (memory/backlog kept)"
+	@rm -rf .loop/runs
+	@git worktree prune 2>/dev/null || true
+	@echo "removed .loop/runs (memory/backlog kept)"
 
 clean-all: ## Remove ALL loop state, including cross-run memory + backlog
-	@rm -rf .loop && echo "removed .loop/ (including memory + backlog)"
+	@rm -rf .loop
+	@git worktree prune 2>/dev/null || true
+	@echo "removed .loop/ (including memory + backlog)"

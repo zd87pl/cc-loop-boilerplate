@@ -56,7 +56,7 @@ if [ "$tool" = "Bash" ] || [ -n "$cmd" ]; then
     *"git branch -D"*)    deny "force branch delete" ;;
   esac
   case "$c_force" in
-    *"git push"*"--force"*|*"git push -f"*|*"git push"*" -f "*) deny "force-push to shared history" ;;
+    *"git push"*"--force"*|*"git push -f"*|*"git push"*" -f "*|*"git push"*" -f") deny "force-push to shared history" ;;
   esac
   case "$c" in
     *"git clean"*)

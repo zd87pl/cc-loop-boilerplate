@@ -34,9 +34,14 @@ slugify() {
 # history or nuke the tree (CON-042).
 looks_destructive() {
   local c="$1"
+  # Strip the safe '--force-with-lease' form (rather than early-returning on it)
+  # so a SEPARATE bare --force in a compound command (a && b) cannot hide behind
+  # it; also catch '-f' mid-command and at the end of the command.
+  local c_force="${c//--force-with-lease/}"
+  case "$c_force" in
+    *"git push"*"--force"*|*"git push -f"*|*"git push"*" -f "*|*"git push"*" -f") return 0 ;;
+  esac
   case "$c" in
-    *"git push --force-with-lease"*)        return 1 ;;  # explicitly allowed form (test first)
-    *"git push"*"--force"*|*"git push -f"*) return 0 ;;
     *"git reset --hard"*)                   return 0 ;;
     *"git clean -"*[fF]*[dD]*)              return 0 ;;
     *"rm -rf /"*|*"rm -rf ~"*|*":(){:|:&};:"*) return 0 ;;

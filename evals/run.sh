@@ -79,6 +79,11 @@ rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"g
 rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm -fr /tmp/x"}}')"
 [ "$rc" = "2" ] && ok "rm -fr vetoed (exit 2)" || no "rm -fr veto" "exit=$rc"
 
+# 7f) a force-push with the flag at the END of the command is still vetoed
+#     (regression: 'git push origin main -f' slipped past the pattern list)
+rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git push origin main -f"}}')"
+[ "$rc" = "2" ] && ok "trailing -f force-push vetoed (exit 2)" || no "trailing -f veto" "exit=$rc"
+
 # 8) protected-branch guard: main refused, a feature branch allowed
 if ( . loop/lib/common.sh; . loop/lib/git.sh; PROTECTED_BRANCHES="main master"; git_is_protected main && ! git_is_protected loop/x ); then
   ok "protected-branch guard (main refused, feature allowed)"
@@ -88,6 +93,25 @@ else no "protected branch" "guard incorrect"; fi
 if ( cd examples/duration-py && bash ../../adapters/stacks/python.sh test ) >/dev/null 2>&1; then
   ok "real python gate passes"
 else no "real gate" "example tests failed"; fi
+
+# 10) an explicit `false` in the config is honored (regression: jq's `// empty`
+#     treated false as absent, so no boolean setting could ever be switched off)
+if ( . loop/lib/common.sh; . loop/lib/config.sh
+     LOOP_CFG_JSON='{"use_worktree":false,"spec_review":{"enabled":false}}'
+     [ "$(cfg_bool '.use_worktree' true)" = "false" ] \
+  && [ "$(cfg_bool '.spec_review.enabled' true)" = "false" ] \
+  && [ "$(cfg_bool '.spec_lint.enabled' true)" = "true" ] ); then
+  ok "explicit boolean 'false' in config honored"
+else no "config false override" "cfg_bool fell back to the default"; fi
+
+# 11) an empty / comments-only .loop.yml falls back to defaults instead of dying
+#     ("an empty or partial file still works" is the documented contract)
+printf '# comments only\n' > "$TMP/empty.yml"
+if ( . loop/lib/common.sh; . loop/lib/config.sh
+     config_load "$TMP/empty.yml" 2>/dev/null
+     [ "$(cfg '.max_iterations' 6)" = "6" ] ); then
+  ok "empty .loop.yml -> built-in defaults"
+else no "empty config" "config_load rejected an empty file"; fi
 
 echo
 if [ "$fail" -eq 0 ]; then printf 'evals: \033[32m%d passed, 0 failed\033[0m\n' "$pass"

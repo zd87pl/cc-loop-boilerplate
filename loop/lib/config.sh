@@ -21,6 +21,9 @@ config_load() {
     warn ".loop.yml not found at $LOOP_CONFIG_FILE — using built-in defaults"
     LOOP_CFG_JSON="{}"
   fi
+  # An empty or comments-only YAML file converts to JSON `null`; the documented
+  # contract is "an empty or partial file still works", so normalize to {}.
+  case "$(printf '%s' "$LOOP_CFG_JSON" | tr -d '[:space:]')" in ''|null) LOOP_CFG_JSON="{}" ;; esac
   printf '%s' "$LOOP_CFG_JSON" | jq -e . >/dev/null 2>&1 \
     || die "could not parse $LOOP_CONFIG_FILE as YAML/JSON"
   export LOOP_CFG_JSON LOOP_CONFIG_FILE
@@ -29,7 +32,10 @@ config_load() {
 # cfg <jq-filter> [default] -> scalar (default if absent/null/empty)
 cfg() {
   local filter="$1" def="${2:-}" v
-  v="$(printf '%s' "$LOOP_CFG_JSON" | jq -r "($filter) // empty" 2>/dev/null)"
+  # select(. != null), NOT `// empty`: to jq `false` is falsy, so `//` would
+  # silently replace an explicit `false` with the default — no boolean setting
+  # could ever be switched off.
+  v="$(printf '%s' "$LOOP_CFG_JSON" | jq -r "($filter) | select(. != null)" 2>/dev/null)"
   if [ -n "$v" ] && [ "$v" != "null" ]; then printf '%s' "$v"; else printf '%s' "$def"; fi
 }
 
