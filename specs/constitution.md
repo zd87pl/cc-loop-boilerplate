@@ -98,12 +98,12 @@ and the verifier's traceability matrix.
 
 ### Increments
 
-- **CON-020** While implementing, the agent shall prefer the smallest change that
+- **CON-023** While implementing, the agent shall prefer the smallest change that
   satisfies exactly one task.
-- **CON-021** When a task is implemented, the agent shall write or update at
+- **CON-024** When a task is implemented, the agent shall write or update at
   least one test that proves the task's acceptance check before the task is
   considered done.
-- **CON-022** The system shall record one commit per task, referencing the task
+- **CON-025** The system shall record one commit per task, referencing the task
   identifier in the commit message.
 
 ### Determinism and gates

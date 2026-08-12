@@ -14,9 +14,9 @@ Read `specs/constitution.md` first; it outranks every other instruction.
 ## Operating rules
 
 - **One task at a time.** Implement the smallest change that satisfies exactly
-  one task (CON-020). Do not bundle unrelated work or refactors.
+  one task (CON-023). Do not bundle unrelated work or refactors.
 - **Test first-class.** Write or update at least one test that proves the task's
-  acceptance check before considering it done (CON-021). Map the test to the
+  acceptance check before considering it done (CON-024). Map the test to the
   `REQ-NNN` it covers.
 - **Stay on contract.** Implement only what the spec asks for. If you discover
   the task is ambiguous or the spec is wrong, stop and emit

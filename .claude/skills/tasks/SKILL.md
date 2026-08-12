@@ -18,7 +18,7 @@ Read `specs/constitution.md`, the approved spec, and `plan.md` first.
 3. Order tasks by dependency. Give each a stable id (`T1`, `T2`, …), an
    acceptance check, and the `REQ-NNN`(s) it satisfies.
 4. Keep tasks small enough that one task = one focused change = one gate pass
-   (CON-020). Avoid big-bang tasks.
+   (CON-023). Avoid big-bang tasks.
 
 ## Output
 - `tasks.md`: an ordered checklist of tasks with ids, acceptance checks, and

@@ -113,6 +113,13 @@ if ( . loop/lib/common.sh; . loop/lib/config.sh
   ok "empty .loop.yml -> built-in defaults"
 else no "empty config" "config_load rejected an empty file"; fi
 
+# 12) constitution rule ids are unique. Skills, agents, and the traceability
+#     matrix cite CON-NNN ids, so a duplicate definition breaks the contract's
+#     own "individually testable and citable" claim (regression: CON-020/021
+#     were each defined twice).
+dups="$(grep -oE '^- \*\*CON-[0-9]+\*\*' specs/constitution.md | sort | uniq -d | grep -oE 'CON-[0-9]+' | paste -sd, -)"
+[ -z "$dups" ] && ok "constitution CON ids unique" || no "constitution ids" "duplicates: $dups"
+
 echo
 if [ "$fail" -eq 0 ]; then printf 'evals: \033[32m%d passed, 0 failed\033[0m\n' "$pass"
 else printf 'evals: %d passed, \033[31m%d failed\033[0m\n' "$pass" "$fail"; fi
