@@ -46,6 +46,45 @@ verb_securityscan() {
   else skip "no security scanner (install bandit or pip-audit)"; fi
 }
 
+# Extended gates (agentic-code-quality alignment). Thresholds arrive via env:
+#   LOOP_COVERAGE_MIN   minimum %-coverage (0 = measure only)
+#   LOOP_COMPLEXITY_MAX maximum cyclomatic complexity per function
+verb_coverage() {
+  local min="${LOOP_COVERAGE_MIN:-0}"
+  if have pytest && python3 -c "import pytest_cov" 2>/dev/null; then
+    if [ "${min:-0}" -gt 0 ] 2>/dev/null; then run pytest -q --cov=. --cov-fail-under="$min"
+    else run pytest -q --cov=.; fi
+  elif have coverage; then
+    run coverage run -m pytest -q || return $?
+    if [ "${min:-0}" -gt 0 ] 2>/dev/null; then run coverage report --fail-under="$min"
+    else run coverage report; fi
+  else skip "no coverage tool (install pytest-cov or coverage)"; fi
+}
+
+verb_complexity() {
+  local max="${LOOP_COMPLEXITY_MAX:-0}"
+  [ "${max:-0}" -gt 0 ] 2>/dev/null || { skip "complexity gate off (set complexity_max in .loop.yml)"; return 0; }
+  if   have xenon;  then run xenon --max-absolute "$(complexity_grade "$max")" .
+  elif have lizard; then run lizard -C "$max" -i 0 .
+  else skip "no complexity tool (install xenon or lizard)"; fi
+}
+
+verb_archlint() {
+  # Architecture/import-boundary rules — only meaningful when the repo declares
+  # them (import-linter config); otherwise skip quietly.
+  if [ -f .importlinter ] || { [ -f pyproject.toml ] && grep -q '\[tool\.importlinter\]' pyproject.toml 2>/dev/null; }; then
+    if have lint-imports; then run lint-imports
+    else skip "import-linter config present but lint-imports not installed"; fi
+  else
+    skip "no architecture rules (.importlinter / [tool.importlinter])"
+  fi
+}
+
+verb_mutation() {
+  if have mutmut; then run mutmut run
+  else skip "no mutation tool (pip install mutmut)"; fi
+}
+
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   adapter_dispatch "${1:-}"
 fi

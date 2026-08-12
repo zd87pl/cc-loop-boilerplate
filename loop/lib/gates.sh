@@ -5,9 +5,37 @@
 #   ADAPTERS_DIR  path to the adapters/ directory
 # A per-verb override in .loop.yml (gates.<verb>) REPLACES the adapter command.
 
-GATE_VERBS_DEFAULT="fmt lint typecheck test build securityscan"
+# The verb vocabulary is defined ONCE in adapters/lib.sh; read it from there.
+# (Fallback literals keep the library usable if executing lib.sh ever fails.)
+GATE_VERBS_DEFAULT="$(bash "${ADAPTERS_DIR:-adapters}/lib.sh" --verbs 2>/dev/null)"
+[ -n "$GATE_VERBS_DEFAULT" ] || GATE_VERBS_DEFAULT="fmt lint typecheck test build securityscan coverage complexity archlint mutation"
+
+# gates_suite_verbs — the verbs the judged suite actually runs, policy-aware:
+#   - fmt + the check verbs always;
+#   - coverage when a minimum is set or it is required;
+#   - complexity when a maximum is set or it is required;
+#   - archlint always (skips instantly when the repo has no rules file);
+#   - mutation only when the risk profile enables it (expensive).
+gates_suite_verbs() {
+  local verbs req=" ${LOOP_REQUIRED_GATES:-} "
+  verbs="$(bash "${ADAPTERS_DIR:-adapters}/lib.sh" --mutating-verbs 2>/dev/null) $(bash "${ADAPTERS_DIR:-adapters}/lib.sh" --check-verbs 2>/dev/null)"
+  [ "${verbs// /}" ] || verbs="fmt lint typecheck test build securityscan"
+  if [ "${LOOP_COVERAGE_MIN:-0}" -gt 0 ] 2>/dev/null; then verbs="$verbs coverage"
+  else case "$req" in *" coverage "*) verbs="$verbs coverage" ;; esac; fi
+  if [ "${LOOP_COMPLEXITY_MAX:-0}" -gt 0 ] 2>/dev/null; then verbs="$verbs complexity"
+  else case "$req" in *" complexity "*) verbs="$verbs complexity" ;; esac; fi
+  verbs="$verbs archlint"
+  [ "${LOOP_MUTATION:-false}" = "true" ] && verbs="$verbs mutation"
+  printf '%s' "$verbs"
+}
 
 gates_detect_stacks() { bash "$ADAPTERS_DIR/detect.sh" "$REPO_DIR" 2>/dev/null; }
+
+# gate_skip_disallowed <verb> — true when the risk profile marks this verb
+# mandatory (skip counts as red): e.g. securityscan on a 'sensitive' change.
+gate_skip_disallowed() {
+  case " ${LOOP_SKIP_IS_RED:-} " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
 
 # gate_run_verb <verb> — returns 0 if green/skipped, non-zero if a command failed.
 gate_run_verb() {
@@ -25,6 +53,11 @@ gate_run_verb() {
 
   local stacks; stacks="$(gates_detect_stacks)"
   if [ -z "$stacks" ]; then
+    if gate_skip_disallowed "$verb"; then
+      err "gate:$verb -> no stack detected, but this gate is MANDATORY for risk '${LOOP_RISK_CLASS:-standard}' (skip counts as red)"
+      gate_update "$verb" "red" 1 "skip-not-allowed (risk=${LOOP_RISK_CLASS:-standard})"
+      return 1
+    fi
     info "gate:$verb -> no stack detected (skipped)"
     gate_update "$verb" "skipped" 0 "(no stack)"
     return 0
@@ -43,18 +76,45 @@ gate_run_verb() {
   done
 
   if   [ $rc -ne 0 ];                              then gate_update "$verb" "red" "$rc" "adapters"
-  elif [ $ran -eq 1 ] && [ $skipped_all -eq 1 ];   then gate_update "$verb" "skipped" 0 "adapters"
+  elif [ $ran -eq 1 ] && [ $skipped_all -eq 1 ];   then
+    if gate_skip_disallowed "$verb"; then
+      err "gate:$verb skipped everywhere, but this gate is MANDATORY for risk '${LOOP_RISK_CLASS:-standard}' (skip counts as red)"
+      gate_update "$verb" "red" 1 "skip-not-allowed (risk=${LOOP_RISK_CLASS:-standard})"
+      return 1
+    fi
+    gate_update "$verb" "skipped" 0 "adapters"
   else                                                  gate_update "$verb" "green" 0 "adapters"; fi
   return $rc
 }
 
-# gates_run_suite [verbs] — run all (or a subset). Returns 0 only if none are red.
+# gate_run_custom <name> <command> — a repo-specific gate from .loop.yml
+# (gates.custom.<name>). Recorded as custom:<name>; usable in required_gates.
+gate_run_custom() {
+  local name="$1" cmd="$2" out rc=0
+  info "gate:custom:$name -> $cmd"
+  out="$( cd "$REPO_DIR" && bash -c "$cmd" 2>&1 )"; rc=$?
+  [ -n "$out" ] && printf '%s\n' "$out" >&2
+  if [ $rc -eq 0 ]; then gate_update "custom:$name" "green" 0 "$cmd"
+  else gate_update "custom:$name" "red" "$rc" "$cmd"; fi
+  return $rc
+}
+
+# gates_run_suite [verbs] — run the policy-aware verb set (or an explicit
+# subset), then every custom gate from .loop.yml. Returns 0 only if none are red.
 gates_run_suite() {
-  local verbs="${1:-$GATE_VERBS_DEFAULT}" v overall=0
+  local verbs="${1:-$(gates_suite_verbs)}" v overall=0
   info "running gate suite: $verbs"
   for v in $verbs; do
     gate_run_verb "$v" || overall=1
   done
+  # Repo-specific custom gates: .loop.yml gates.custom.<name>: "<command>"
+  local cname ccmd
+  while IFS= read -r cname; do
+    [ -n "$cname" ] || continue
+    ccmd="$(cfg ".gates.custom[\"$cname\"]" "")"
+    [ -n "$ccmd" ] || continue
+    gate_run_custom "$cname" "$ccmd" || overall=1
+  done < <(printf '%s' "${LOOP_CFG_JSON:-{}}" | jq -r '.gates.custom // {} | keys[]' 2>/dev/null)
   if [ $overall -eq 0 ]; then ok "gate suite: no failures"; else err "gate suite: failures present"; fi
   return $overall
 }

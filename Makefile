@@ -43,10 +43,11 @@ fmt: ## Format the tree in place across detected stacks
 	@stacks="$$(bash adapters/detect.sh .)"; \
 	 for s in $$stacks; do echo "== fmt:$$s =="; bash adapters/stacks/$$s.sh fmt; done
 
-gates: ## Run the check gates (lint typecheck test build securityscan) over detected stacks
+gates: ## Run the check gates (verb list from adapters/lib.sh) over detected stacks
 	@stacks="$$(bash adapters/detect.sh .)"; \
 	 if [ -z "$$stacks" ]; then echo "no stack detected; gates skip"; exit 0; fi; \
-	 rc=0; for v in lint typecheck test build securityscan; do \
+	 verbs="$$(bash adapters/lib.sh --check-verbs)"; \
+	 rc=0; for v in $$verbs; do \
 	   for s in $$stacks; do echo "== $$v:$$s =="; bash adapters/stacks/$$s.sh $$v || rc=1; done; \
 	 done; exit $$rc
 

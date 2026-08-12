@@ -215,6 +215,59 @@ else
   ok "traceability overwrite is guarded (verifier's matrix preserved)"
 fi
 
+# ---------------------------------------------------------------------------
+# Gate vocabulary + risk profiles (CON-039)
+# ---------------------------------------------------------------------------
+latest_state() { printf '%s' "$(ls -1dt "$TMP"/runs/run-* 2>/dev/null | head -1)/state.json"; }
+
+# 21) the verb vocabulary has ONE definition (adapters/lib.sh) and consumers
+#     read it from there instead of keeping copies.
+verbs="$(bash adapters/lib.sh --verbs 2>/dev/null)"
+checkverbs="$(bash adapters/lib.sh --check-verbs 2>/dev/null)"
+if [ "$verbs" = "fmt lint typecheck test build securityscan coverage complexity archlint mutation" ] \
+   && [ "$checkverbs" = "lint typecheck test build securityscan" ] \
+   && ! grep -q 'for v in lint typecheck test build securityscan' Makefile; then
+  ok "verb vocabulary single-sourced from adapters/lib.sh"
+else no "verb single-source" "verbs='$verbs' check='$checkverbs'"; fi
+
+# 22) sensitive risk class makes the security pass MANDATORY (skip counts as
+#     red) and raises the coverage bar — risk calibration is mechanical, not
+#     cosmetic. The fixture spec mentions 'password' so the dry-run stub
+#     classifies it sensitive; this toolchain-less repo then FAILS the run.
+s="$(loop_status evals/cases/sensitive-spec)"
+sf="$(latest_state)"
+if [ "$s" = "partial" ] \
+   && [ "$(jq -r '.spec.risk_class' "$sf")" = "sensitive" ] \
+   && [ "$(jq -r '.config.effective_coverage_threshold' "$sf")" = "80" ] \
+   && [ "$(jq -r '.gates.securityscan.status' "$sf")" = "red" ]; then
+  ok "sensitive profile: mandatory securityscan skip=red halts, coverage bar raised"
+else no "sensitive profile" "status='$s' risk=$(jq -r '.spec.risk_class' "$sf" 2>/dev/null) cov=$(jq -r '.config.effective_coverage_threshold' "$sf" 2>/dev/null) sec=$(jq -r '.gates.securityscan.status' "$sf" 2>/dev/null)"; fi
+
+# 23) custom gates from config run in the suite and can block the run.
+printf 'gates:\n  custom:\n    hello: "false"\n' > "$TMP/custom-red.yml"
+s="$(LOOP_CONFIG="$TMP/custom-red.yml" loop_status specs/000-example)"
+[ "$s" = "partial" ] && ok "red custom gate blocks the run" || no "custom gate red" "status='$s'"
+printf 'gates:\n  custom:\n    hello: "true"\n' > "$TMP/custom-green.yml"
+s="$(LOOP_CONFIG="$TMP/custom-green.yml" loop_status specs/000-example)"
+if [ "$s" = "completed" ] && [ "$(jq -r '.gates["custom:hello"].status' "$(latest_state)")" = "green" ]; then
+  ok "green custom gate recorded and run completes"
+else no "custom gate green" "status='$s'"; fi
+
+# 24) shared helpers: coverage comparison + complexity grade mapping.
+if ( . adapters/lib.sh
+     coverage_compare 85.5 80 && ! coverage_compare 79 80 && coverage_compare 80 80 \
+     && [ "$(complexity_grade 10)" = "B" ] && [ "$(complexity_grade 21)" = "D" ] ); then
+  ok "coverage_compare + complexity_grade helpers"
+else no "adapter helpers" "comparison/mapping wrong"; fi
+
+# 25) a profile can override max_iterations (bounds calibrate to risk).
+printf 'risk_profiles:\n  standard:\n    max_iterations: 0\n' > "$TMP/iter0.yml"
+s="$(LOOP_CONFIG="$TMP/iter0.yml" loop_status specs/000-example)"
+sf="$(latest_state)"
+if [ "$s" = "partial" ] && jq -r '.halt_reason' "$sf" | grep -q 'max_iterations (0)'; then
+  ok "profile max_iterations override enforced"
+else no "profile max_iter" "status='$s' reason='$(jq -r '.halt_reason' "$sf" 2>/dev/null)'"; fi
+
 echo
 if [ "$fail" -eq 0 ]; then printf 'evals: \033[32m%d passed, 0 failed\033[0m\n' "$pass"
 else printf 'evals: %d passed, \033[31m%d failed\033[0m\n' "$pass" "$fail"; fi

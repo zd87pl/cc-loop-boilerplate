@@ -600,12 +600,6 @@ if $SPEC_REVIEW_ENABLED; then
   state_set_str '.spec.risk_class' "$RISK"
   event "spec_review" "verdict" "$(jq -nc --arg v "$VERDICT" --arg r "$RISK" '{verdict:$v, risk_class:$r}')"
   info "spec readiness: verdict=$VERDICT risk=$RISK"
-  # Calibrate downstream depth: raise the verifier's coverage bar for sensitive specs (REQ-008).
-  if [ "$RISK" = "sensitive" ] && awk -v a="$SENSITIVE_COV" -v b="$COVERAGE_THRESHOLD" 'BEGIN{exit !(a>b)}'; then
-    COVERAGE_THRESHOLD="$SENSITIVE_COV"
-    info "sensitive spec → effective coverage threshold raised to ${COVERAGE_THRESHOLD}%"
-  fi
-  state_set '.config.effective_coverage_threshold' "$COVERAGE_THRESHOLD"
   # Hard gate on the verdict (REQ-004/005); decided by the file, not by a prompt.
   if [ "$VERDICT" = "NOT_READY" ] && [ "$SPEC_REVIEW_FAIL" = "not_ready" ]; then
     clarification_add "spec readiness = NOT_READY — resolve the critical gaps in spec-review.md ('start here')"
@@ -618,6 +612,87 @@ if $SPEC_REVIEW_ENABLED; then
     event "spec_review" "caveats_carried"
   fi
 fi
+
+# ---------------------------------------------------------------------------
+# Risk-profile resolution (CON-039): constraint strength calibrates to the
+# spec's risk class — tighter where the stakes are high, and only ever relaxed
+# by explicit configuration. Effective policy flows to gates.sh and the
+# adapters as environment (LOOP_*), and into the review/verify prompts as
+# context; scripts decide, the model is informed.
+# ---------------------------------------------------------------------------
+PROFILE="${RISK:-standard}"
+prof_has() { printf '%s' "$LOOP_CFG_JSON" | jq -e ".risk_profiles.\"$PROFILE\".$1" >/dev/null 2>&1; }
+prof()     { cfg ".risk_profiles.\"$PROFILE\".$1" "$2"; }
+
+# Required gates: the global floor UNION the profile's list (defaults: low=test;
+# standard=test,lint; sensitive=test,lint,typecheck,build,securityscan,coverage).
+if prof_has required_gates; then
+  PROF_REQUIRED="$(cfg_list ".risk_profiles.\"$PROFILE\".required_gates" | tr '\n' ' ')"
+else
+  case "$PROFILE" in
+    low)       PROF_REQUIRED="test" ;;
+    sensitive) PROF_REQUIRED="test lint typecheck build securityscan coverage" ;;
+    *)         PROF_REQUIRED="test lint" ;;
+  esac
+fi
+REQUIRED_GATES="$(printf '%s\n' $REQUIRED_GATES $PROF_REQUIRED | awk 'NF' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+
+# Coverage bar: the HIGHER of global and profile wins (tighten-only unless the
+# profile explicitly sets a value). Sensitive default comes from
+# spec_review.sensitive_coverage_threshold for backward compatibility.
+if [ "$PROFILE" = "sensitive" ]; then PROF_COV_DEFAULT="$SENSITIVE_COV"; else PROF_COV_DEFAULT="$COVERAGE_THRESHOLD"; fi
+PROF_COV="$(prof coverage_threshold "$PROF_COV_DEFAULT")"
+case "$PROF_COV" in ''|*[!0-9]*) die "risk_profiles.$PROFILE.coverage_threshold must be an integer (got '$PROF_COV')" ;; esac
+if prof_has coverage_threshold; then COVERAGE_THRESHOLD="$PROF_COV"
+elif awk -v a="$PROF_COV" -v b="$COVERAGE_THRESHOLD" 'BEGIN{exit !(a>b)}'; then COVERAGE_THRESHOLD="$PROF_COV"; fi
+
+# Review blocking severity: sensitive blocks medium+ by default (CON-035).
+if [ "$PROFILE" = "sensitive" ]; then SEV_DEFAULT="medium"; else SEV_DEFAULT="$REVIEW_BLOCK_SEV"; fi
+REVIEW_BLOCK_SEV="$(prof review_block_severity "$SEV_DEFAULT")"
+case "$REVIEW_BLOCK_SEV" in critical|high|medium|low) : ;; *) die "risk_profiles.$PROFILE.review_block_severity must be critical|high|medium|low" ;; esac
+
+# Mutation testing (expensive): profile-gated; sensitive enables it by default.
+if [ "$PROFILE" = "sensitive" ]; then MUT_DEFAULT=true; else MUT_DEFAULT=false; fi
+MUTATION="$(cfg_bool ".risk_profiles.\"$PROFILE\".mutation" "$MUT_DEFAULT")"
+
+# Complexity ceiling: global knob, profile-overridable.
+COMPLEXITY_MAX="$(prof complexity_max "$(cfg '.complexity_max' '0')")"
+case "$COMPLEXITY_MAX" in ''|*[!0-9]*) die "complexity_max must be a non-negative integer (got '$COMPLEXITY_MAX')" ;; esac
+
+# Iteration cap: profile-overridable (validated like the global).
+if prof_has max_iterations; then
+  MAX_ITER="$(prof max_iterations "$MAX_ITER")"
+  case "$MAX_ITER" in ''|*[!0-9]*) die "risk_profiles.$PROFILE.max_iterations must be a non-negative integer" ;; esac
+  state_set '.config.max_iterations' "$MAX_ITER"
+fi
+
+# Mandatory gates whose SKIP counts as red (sensitive: the security pass and
+# the coverage bar must actually run — CON-039).
+if prof_has skip_is_red; then
+  SKIP_IS_RED="$(cfg_list ".risk_profiles.\"$PROFILE\".skip_is_red" | tr '\n' ' ' | sed 's/ *$//')"
+else
+  case "$PROFILE" in sensitive) SKIP_IS_RED="securityscan coverage" ;; *) SKIP_IS_RED="" ;; esac
+fi
+
+# Plan-drift response (consumed by the drift check): warn everywhere by
+# default; halt for sensitive changes.
+if [ "$PROFILE" = "sensitive" ]; then DRIFT_DEFAULT="halt"; else DRIFT_DEFAULT="warn"; fi
+DRIFT_ACTION="$(prof drift_action "$DRIFT_DEFAULT")"
+case "$DRIFT_ACTION" in off|warn|halt) : ;; *) die "risk_profiles.$PROFILE.drift_action must be off|warn|halt" ;; esac
+
+state_set '.config.effective_coverage_threshold' "$COVERAGE_THRESHOLD"
+state_set_str '.config.risk_profile' "$PROFILE"
+state_set_str '.config.required_gates' "$REQUIRED_GATES"
+state_set_str '.config.review_block_severity' "$REVIEW_BLOCK_SEV"
+state_set_str '.config.drift_action' "$DRIFT_ACTION"
+export LOOP_RISK_CLASS="$PROFILE" LOOP_COVERAGE_MIN="$COVERAGE_THRESHOLD" \
+       LOOP_COMPLEXITY_MAX="$COMPLEXITY_MAX" LOOP_REQUIRED_GATES="$REQUIRED_GATES" \
+       LOOP_MUTATION="$MUTATION" LOOP_SKIP_IS_RED="$SKIP_IS_RED"
+event "controller" "risk_profile" "$(jq -nc --arg p "$PROFILE" --arg rg "$REQUIRED_GATES" \
+  --argjson cov "$COVERAGE_THRESHOLD" --arg sev "$REVIEW_BLOCK_SEV" --arg mut "$MUTATION" \
+  --arg sir "$SKIP_IS_RED" --arg da "$DRIFT_ACTION" \
+  '{profile:$p, required_gates:$rg, coverage_threshold:$cov, review_block_severity:$sev, mutation:$mut, skip_is_red:$sir, drift_action:$da}')"
+info "risk profile '$PROFILE': required=[$REQUIRED_GATES] coverage>=${COVERAGE_THRESHOLD}% block>=$REVIEW_BLOCK_SEV mutation=$MUTATION skip_is_red=[$SKIP_IS_RED] drift=$DRIFT_ACTION"
 
 human_gate spec     "Approve the spec (readiness=${VERDICT:-n/a}, risk=${RISK:-n/a}) and proceed to PLAN?" || { halt "spec gate declined" halted; exit "$(exit_for_status)"; }
 

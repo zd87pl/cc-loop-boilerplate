@@ -131,6 +131,16 @@ and the verifier's traceability matrix.
 - **CON-036** When the verify stage completes, the controller shall read a
   deterministic PASS/FAIL verdict artifact and shall halt on FAIL (or on a
   missing/malformed verdict) before the human pre-merge gate.
+- **CON-037** When a gate fails, the system shall capture bounded gate output
+  and surface it in the report and to the fixing agent — an exit code with no
+  diagnostics is not actionable feedback.
+- **CON-038** While running the judging gate suite, the system shall not mutate
+  the working tree (formatters run in check mode there; mutation belongs to the
+  edit-time hooks).
+- **CON-039** Where the risk profile enables them, the system shall enforce
+  coverage, complexity, architecture, and mutation gates through stack adapters
+  that skip when tooling is absent — except where the profile marks a gate
+  mandatory, in which case a skip shall fail.
 
 ### Safety, branches, and secrets
 

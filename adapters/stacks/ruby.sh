@@ -47,6 +47,15 @@ verb_securityscan() {
   else skip "no security scanner (brakeman or bundler-audit)"; fi
 }
 
+# Extended gate (agentic-code-quality alignment): generic cyclomatic-complexity
+# check via lizard when installed. Threshold via $LOOP_COMPLEXITY_MAX.
+verb_complexity() {
+  local max="${LOOP_COMPLEXITY_MAX:-0}"
+  [ "${max:-0}" -gt 0 ] 2>/dev/null || { skip "complexity gate off (set complexity_max in .loop.yml)"; return 0; }
+  if have lizard; then run lizard -C "$max" -i 0 .
+  else skip "lizard not installed"; fi
+}
+
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   adapter_dispatch "${1:-}"
 fi

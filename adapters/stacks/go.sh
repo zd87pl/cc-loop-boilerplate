@@ -38,6 +38,37 @@ verb_securityscan() {
   else skip "no security scanner (install govulncheck or gosec)"; fi
 }
 
+# Extended gates (agentic-code-quality alignment). Thresholds arrive via env:
+#   LOOP_COVERAGE_MIN   minimum %-coverage (0 = measure only)
+#   LOOP_COMPLEXITY_MAX maximum cyclomatic complexity per function
+verb_coverage() {
+  require_go || return 0
+  local min="${LOOP_COVERAGE_MIN:-0}" pct
+  run go test -coverprofile=coverage.out ./... || return $?
+  pct="$(go tool cover -func=coverage.out 2>/dev/null | awk '/^total:/ {gsub(/%/,"",$NF); print $NF}')"
+  [ -n "$pct" ] || { skip "could not compute coverage total"; return 0; }
+  note "coverage: ${pct}% (minimum: ${min}%)"
+  if [ "${min:-0}" -gt 0 ] 2>/dev/null; then
+    coverage_compare "$pct" "$min" || { printf '    coverage %s%% is below the %s%% minimum\n' "$pct" "$min" >&2; return 1; }
+  fi
+}
+
+verb_complexity() {
+  local max="${LOOP_COMPLEXITY_MAX:-0}"
+  [ "${max:-0}" -gt 0 ] 2>/dev/null || { skip "complexity gate off (set complexity_max in .loop.yml)"; return 0; }
+  if have gocyclo; then run gocyclo -over "$max" .
+  else skip "gocyclo not installed"; fi
+}
+
+verb_archlint() {
+  if [ -f .go-arch-lint.yml ]; then
+    if have go-arch-lint; then run go-arch-lint check
+    else skip "go-arch-lint config present but tool not installed"; fi
+  else
+    skip "no architecture rules (.go-arch-lint.yml)"
+  fi
+}
+
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   adapter_dispatch "${1:-}"
 fi

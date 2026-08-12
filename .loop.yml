@@ -98,6 +98,29 @@ required_gates:
 review:
   block_severity: high           # critical | high | medium | low
 
+# Cyclomatic-complexity ceiling for the `complexity` gate (0 = gate off).
+complexity_max: 0
+
+# ---------------------------------------------------------------------------
+# Risk profiles (CON-039) — constraint strength calibrates to the spec's risk
+# class from /spec-review ("every yes is a statement about how low the stakes
+# are"). Each profile can set: required_gates (UNION-merged with the global
+# floor above), coverage_threshold, review_block_severity, mutation (on/off),
+# complexity_max, max_iterations, skip_is_red (gates whose SKIP counts as RED),
+# and drift_action (off|warn|halt, consumed by the plan-drift check).
+# The commented block below documents the built-in defaults — uncomment to
+# override. Sensitive changes get a MANDATORY security pass and coverage bar.
+# ---------------------------------------------------------------------------
+# risk_profiles:
+#   low:       { required_gates: [test], review_block_severity: high,
+#                mutation: false, drift_action: warn }
+#   standard:  { required_gates: [test, lint], review_block_severity: high,
+#                mutation: false, drift_action: warn }
+#   sensitive: { required_gates: [test, lint, typecheck, build, securityscan, coverage],
+#                coverage_threshold: 80, review_block_severity: medium,
+#                mutation: true, skip_is_red: [securityscan, coverage],
+#                drift_action: halt }
+
 # ---------------------------------------------------------------------------
 # Secret scanning (PreToolUse veto)
 # ---------------------------------------------------------------------------

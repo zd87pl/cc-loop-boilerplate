@@ -66,6 +66,43 @@ verb_securityscan() {
   esac
 }
 
+# Extended gates (agentic-code-quality alignment). Thresholds arrive via env:
+#   LOOP_COVERAGE_MIN   minimum %-coverage (0 = measure only)
+verb_coverage() {
+  local min="${LOOP_COVERAGE_MIN:-0}"
+  if npm_script coverage; then run "$(pm)" run coverage
+  elif node_have c8 && npm_script test; then
+    if [ "${min:-0}" -gt 0 ] 2>/dev/null; then
+      node_run c8 --check-coverage --lines "$min" "$(pm)" test
+    else
+      node_run c8 "$(pm)" test
+    fi
+  else skip "no coverage path (add a 'coverage' script or install c8)"; fi
+}
+
+verb_complexity() {
+  if npm_script complexity; then run "$(pm)" run complexity
+  else skip "no 'complexity' script (e.g. eslint with the complexity rule)"; fi
+}
+
+verb_archlint() {
+  if [ -f .dependency-cruiser.js ] || [ -f .dependency-cruiser.cjs ] || [ -f .dependency-cruiser.json ]; then
+    if node_have depcruise; then node_run depcruise --validate src
+    else skip "dependency-cruiser config present but depcruise not installed"; fi
+  else
+    skip "no architecture rules (.dependency-cruiser.{js,cjs,json})"
+  fi
+}
+
+verb_mutation() {
+  if [ -f stryker.conf.js ] || [ -f stryker.conf.json ] || [ -f stryker.config.mjs ]; then
+    if node_have stryker; then node_run stryker run
+    else skip "stryker config present but stryker not installed"; fi
+  else
+    skip "no mutation config (stryker.conf.*)"
+  fi
+}
+
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   adapter_dispatch "${1:-}"
 fi
