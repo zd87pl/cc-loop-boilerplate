@@ -7,9 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 require_dotnet() { have dotnet || { skip "dotnet SDK not installed"; return 1; }; }
 
+# $LOOP_FMT_CHECK=1 -> verify formatting without rewriting (CON-038).
 verb_fmt() {
   require_dotnet || return 0
-  run dotnet format
+  if [ "${LOOP_FMT_CHECK:-0}" = "1" ]; then run dotnet format --verify-no-changes
+  else run dotnet format; fi
 }
 
 verb_lint() {

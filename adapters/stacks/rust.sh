@@ -7,9 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 require_cargo() { have cargo || { skip "cargo not installed"; return 1; }; }
 
+# $LOOP_FMT_CHECK=1 -> verify formatting without rewriting (CON-038).
 verb_fmt() {
   require_cargo || return 0
-  run cargo fmt --all
+  if [ "${LOOP_FMT_CHECK:-0}" = "1" ]; then run cargo fmt --all --check
+  else run cargo fmt --all; fi
 }
 
 verb_lint() {

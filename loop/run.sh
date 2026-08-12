@@ -157,7 +157,11 @@ fi
 RUN_DIR="$RUNS_DIR/$RUN_ID"
 STATE_FILE="$RUN_DIR/state.json"
 EVENTS_FILE="$RUN_DIR/events.jsonl"
-export RUN_DIR STATE_FILE EVENTS_FILE
+# Bounded per-verb gate diagnostics land here (CON-037): a red gate must leave
+# actionable output for the fixing agent and the report, not just an exit code.
+LOOP_GATE_LOG_DIR="$RUN_DIR/gates"
+LOOP_GATE_LOG_BYTES="$(cfg '.gate_log_bytes' '20000')"
+export RUN_DIR STATE_FILE EVENTS_FILE LOOP_GATE_LOG_DIR LOOP_GATE_LOG_BYTES
 mkdir -p "$RUN_DIR"
 # Initialize the event stream only for a FRESH run; resuming must preserve the
 # append-only audit trail (CON-080) rather than truncate it.
@@ -258,10 +262,19 @@ finish() {
     state_set_str '.halt_reason' "process exited unexpectedly (rc=$rc)"
     event "controller" "halt" "$(jq -nc --arg r "rc=$rc" '{reason:$r}')"
   fi
+  # Halted/partial runs are the ones humans investigate — give them a head SHA
+  # too, not just completed runs (CON-081).
+  if jq -e . "$STATE_FILE" >/dev/null 2>&1; then
+    case "$(state_get '.git.head_sha // ""' 2>/dev/null)" in
+      ''|null) state_set_str '.git.head_sha' "$(git -C "${REPO_DIR:-$ROOT_DIR}" rev-parse HEAD 2>/dev/null || echo '')" 2>/dev/null ;;
+    esac
+  fi
   [ -f "$RUN_DIR/traceability.md" ] || report_write_traceability "$SPEC_PATH" "$DRY_RUN" 2>/dev/null || true
   report_render 2>/dev/null || true
-  # Record the documented exit code for this run's terminal status (CON-082).
+  # Record the documented exit code for this run's terminal status (CON-082),
+  # then validate the state against its schema (warn-only, needs check-jsonschema).
   jq -e . "$STATE_FILE" >/dev/null 2>&1 && state_set '.exit_code' "$(exit_for_status)" 2>/dev/null
+  state_validate "$SCHEMA_FILE" 2>/dev/null || true
 
   # Carry deferred items + record a digest only when state is valid JSON, so a
   # corrupt or early-aborted state cannot poison cross-run memory (SPEC-002).
@@ -374,8 +387,8 @@ stage_prompt() { # stage_prompt <name>
     plan)        echo "/${SKILL_PREFIX}plan $common Read $RUN_DIR/context-map.md. Write the technical plan to $RUN_DIR/plan.md." ;;
     tasks)     echo "/${SKILL_PREFIX}tasks $common Read $RUN_DIR/plan.md. Write an ordered, independently testable task list to $RUN_DIR/tasks.md." ;;
     implement) echo "/${SKILL_PREFIX}implement $common Read $RUN_DIR/tasks.md. Implement the next unfinished task with a test, on branch $BRANCH in $REPO_DIR. Commit per task." ;;
-    review)    echo "/${SKILL_PREFIX}review $common Risk class: ${RISK:-standard}. Adversarially review the diff on $BRANCH and run a security pass. Write findings to $RUN_DIR/findings.json matching $ROOT_DIR/loop/findings.schema.json — {\"findings\":[{\"id\",\"severity\":\"critical|high|medium|low\",\"title\",...}]} with CWE ids and a \"source\" of reviewer|security-auditor where applicable — and write the bare integer count to $RUN_DIR/findings.count. The controller blocks on findings at or above severity '$REVIEW_BLOCK_SEV' and carries the rest to the backlog, so severity accuracy matters." ;;
-    fix)       echo "/${SKILL_PREFIX}fix $common Read $RUN_DIR/findings.json. Apply the smallest fixes that resolve the findings (severity '$REVIEW_BLOCK_SEV' and above block the run), re-running gates. Update $RUN_DIR/findings.json to remove resolved findings and update $RUN_DIR/findings.count." ;;
+    review)    echo "/${SKILL_PREFIX}review $common Risk class: ${RISK:-standard}. Current gate diagnostics: $RUN_DIR/gates/ (one log per verb) — treat red gates as findings. Adversarially review the diff on $BRANCH and run a security pass. Write findings to $RUN_DIR/findings.json matching $ROOT_DIR/loop/findings.schema.json — {\"findings\":[{\"id\",\"severity\":\"critical|high|medium|low\",\"title\",...}]} with CWE ids and a \"source\" of reviewer|security-auditor where applicable — and write the bare integer count to $RUN_DIR/findings.count. The controller blocks on findings at or above severity '$REVIEW_BLOCK_SEV' and carries the rest to the backlog, so severity accuracy matters." ;;
+    fix)       echo "/${SKILL_PREFIX}fix $common Read $RUN_DIR/findings.json, and the gate diagnostics in $RUN_DIR/gates/ (red gate output tells you what to fix). Apply the smallest fixes that resolve the findings (severity '$REVIEW_BLOCK_SEV' and above block the run), re-running gates. Update $RUN_DIR/findings.json to remove resolved findings and update $RUN_DIR/findings.count." ;;
     verify)      echo "/${SKILL_PREFIX}verify $common Risk class: ${RISK:-standard}; effective coverage bar: ${COVERAGE_THRESHOLD:-0}%. Build the SPEC/PRD/ADR ⇄ code ⇄ test traceability matrix to $RUN_DIR/traceability.md, report drift and coverage, and write a short change-walkthrough (what changed, why, risk areas) to $RUN_DIR/walkthrough.md. Then write a single verdict token to $RUN_DIR/verify.verdict: exactly PASS (every requirement COVERED, no DRIFT, no red gate) or FAIL. Do not edit code." ;;
   esac
 }
@@ -413,7 +426,7 @@ stage_run() {
   event "$name" "start"
   info "stage ▶ $name  (model=$(model_for "$name"))"
 
-  local rc=0 text=""
+  local rc=0 text="" _t0="$SECONDS"
   if $DRY_RUN; then
     stage_dryrun "$name"; rc=$?
   else
@@ -428,10 +441,15 @@ stage_run() {
   fi
   event_cost "$name"
 
+  # Stage events carry duration and the current git SHA (CON-080).
+  local _extra
+  _extra="$(jq -nc --argjson d "$((SECONDS - _t0))" \
+                   --arg sha "$(git -C "${REPO_DIR:-$ROOT_DIR}" rev-parse HEAD 2>/dev/null || echo '')" \
+                   '{duration_s:$d, head_sha:$sha}')"
   if [ $rc -ne 0 ]; then
     stage_update_str "$name" status failed
     stage_update_str "$name" ended_at "$(now_utc)"
-    event "$name" "failed" "$(jq -nc --argjson rc "$rc" '{rc:$rc}')"
+    event "$name" "failed" "$(jq -nc --argjson rc "$rc" --argjson x "$_extra" '{rc:$rc} + $x')"
     warn "stage ✘ $name (rc=$rc)"
     return $rc
   fi
@@ -440,13 +458,13 @@ stage_run() {
   if ! artifacts_validate "$name"; then
     stage_update_str "$name" status failed
     stage_update_str "$name" ended_at "$(now_utc)"
-    event "$name" "artifact_invalid"
+    event "$name" "artifact_invalid" "$_extra"
     halt "stage '$name' produced missing or invalid artifacts (see $RUN_DIR)" needs_clarification
     return 10
   fi
   stage_update_str "$name" status passed
   stage_update_str "$name" ended_at "$(now_utc)"
-  event "$name" "passed"
+  event "$name" "passed" "$_extra"
   ok "stage ✔ $name"
   return 0
 }
@@ -704,6 +722,14 @@ stage_run plan      || exit $?
 stage_run tasks     || exit $?
 stage_run implement || exit $?
 
+# Back-pressure where code is born (CON-037): run the gate suite right after
+# implement so red gates surface as diagnostics for the reviewer, instead of
+# waiting for the pre-merge barrier. Failures do not halt here — the review⇄fix
+# loop is the repair mechanism. (The dry-run stub already does this.)
+if ! $DRY_RUN; then
+  gates_run_suite || warn "gates red after implement — logs in $LOOP_GATE_LOG_DIR feed the review"
+fi
+
 # review <-> fix loop (CON-031, CON-050, CON-052). The loop keys on the number
 # of BLOCKING findings (>= REVIEW_BLOCK_SEV), derived from validated JSON
 # (CON-033/035) — never on a model-written integer.
@@ -716,7 +742,7 @@ while [ "${findings:-0}" -gt 0 ]; do
   if [ "$findings" -eq "$prev" ]; then halt "no measurable progress (blocking findings stuck at $findings)" halted; break; fi
   prev="$findings"
   stage_run fix || exit $?
-  gates_run_suite >/dev/null 2>&1 || warn "gates red after fix"
+  gates_run_suite || warn "gates red after fix"
   ITER=$((ITER+1)); state_set '.iteration' "$ITER"
   event "controller" "iteration" "$(jq -nc --argjson i "$ITER" '{iteration:$i}')"
   stage_run review || exit $?
@@ -742,8 +768,8 @@ case "$(state_get '.status')" in halted|partial|needs_clarification) exit "$(exi
 # Final gate suite must be green before verify's human pre-merge gate (CON-031),
 # and every REQUIRED gate must have actually run green — a skipped required gate
 # fails a live run (CON-034): no toolchain must not read as "verified".
-if ! gates_run_suite >/dev/null 2>&1 || ! gates_all_green; then
-  halt "quality gates are red; cannot proceed to pre-merge" partial; exit "$(exit_for_status)"
+if ! gates_run_suite || ! gates_all_green; then
+  halt "quality gates are red; cannot proceed to pre-merge (diagnostics: $LOOP_GATE_LOG_DIR)" partial; exit "$(exit_for_status)"
 fi
 if ! gates_required_ok "$REQUIRED_GATES" "$DRY_RUN"; then
   halt "required gate(s) did not run green (see report); install the toolchain or set .loop.yml gates.<verb>" partial

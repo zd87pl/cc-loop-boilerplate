@@ -27,10 +27,17 @@ node_run() {
   else run "$b" "$@"; fi
 }
 
+# $LOOP_FMT_CHECK=1 -> verify formatting without rewriting (CON-038).
 verb_fmt() {
-  if   npm_script format; then run "$(pm)" run format
-  elif node_have prettier; then node_run prettier --write .
-  else skip "no formatter (add a package.json 'format' script or prettier)"; fi
+  if [ "${LOOP_FMT_CHECK:-0}" = "1" ]; then
+    if   npm_script "format:check"; then run "$(pm)" run format:check
+    elif node_have prettier; then node_run prettier --check .
+    else skip "no format check (add a 'format:check' script or prettier)"; fi
+  else
+    if   npm_script format; then run "$(pm)" run format
+    elif node_have prettier; then node_run prettier --write .
+    else skip "no formatter (add a package.json 'format' script or prettier)"; fi
+  fi
 }
 
 verb_lint() {

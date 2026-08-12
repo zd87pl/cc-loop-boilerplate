@@ -53,7 +53,10 @@ stage_update_str() {
 stage_status() { state_get '(.stages[] | select(.name=="'"$1"'") | .status) // "pending"'; }
 
 # gate_update <verb> <status> <code> <command>
+# A no-op when no run state exists: gates.sh is also sourced by the Stop hook,
+# which runs gates outside any loop run (no STATE_FILE).
 gate_update() {
+  [ -n "${STATE_FILE:-}" ] && [ -f "$STATE_FILE" ] || return 0
   jq --arg verb "$1" --arg s "$2" --argjson code "${3:-0}" --arg cmd "${4:-}" --arg now "$(now_utc)" '
       .gates[$verb] = {status:$s, code:$code, command:$cmd, updated_at:$now}
     | .updated_at = $now' "$STATE_FILE" | state_write

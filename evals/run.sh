@@ -268,6 +268,75 @@ if [ "$s" = "partial" ] && jq -r '.halt_reason' "$sf" | grep -q 'max_iterations 
   ok "profile max_iterations override enforced"
 else no "profile max_iter" "status='$s' reason='$(jq -r '.halt_reason' "$sf" 2>/dev/null)'"; fi
 
+# ---------------------------------------------------------------------------
+# Feedback quality (CON-037/038/083 + CON-080)
+# ---------------------------------------------------------------------------
+
+# 26) a red gate leaves its OUTPUT in the run dir and the report — an exit code
+#     with no diagnostics is not actionable feedback (CON-037).
+printf 'gates:\n  test: "echo BOOM-DIAGNOSTIC; exit 1"\n' > "$TMP/boom.yml"
+s="$(LOOP_CONFIG="$TMP/boom.yml" loop_status specs/000-example)"
+rd="$(dirname "$(latest_state)")"
+if [ "$s" = "partial" ] && grep -q 'BOOM-DIAGNOSTIC' "$rd/gates/test.log" 2>/dev/null \
+   && grep -q 'BOOM-DIAGNOSTIC' "$rd/report.md" 2>/dev/null; then
+  ok "red-gate output captured in gates/test.log + report excerpt"
+else no "gate output capture" "status='$s' log=$(ls "$rd/gates" 2>/dev/null | paste -sd, -)"; fi
+
+# 27) the Stop hook resolves gates like the controller: .loop.yml overrides are
+#     honored, and failure output is fed back to the model before exit 2.
+mkdir -p "$TMP/proj/.loop"
+printf 'gates:\n  lint: "echo LINT-SAYS-NO; exit 1"\n' > "$TMP/proj/.loop.yml"
+serr="$TMP/stopgate.err"
+printf '{"session_id":"eval1"}' \
+  | CLAUDE_PROJECT_DIR="$TMP/proj" CLAUDE_PLUGIN_ROOT="$PWD" bash .claude/hooks/stop-gate.sh >/dev/null 2>"$serr"
+rc=$?
+if [ "$rc" = "2" ] && grep -q 'lint' "$serr" && grep -q 'LINT-SAYS-NO' "$serr"; then
+  ok "stop hook honors config overrides + feeds failure output back (exit 2)"
+else no "stop-gate overrides" "rc=$rc stderr=$(head -c 120 "$serr" 2>/dev/null)"; fi
+printf 'gates:\n  lint: "true"\n' > "$TMP/proj/.loop.yml"
+rc="$(printf '{"session_id":"eval1"}' \
+  | CLAUDE_PROJECT_DIR="$TMP/proj" CLAUDE_PLUGIN_ROOT="$PWD" bash .claude/hooks/stop-gate.sh >/dev/null 2>&1; echo $?)"
+[ "$rc" = "0" ] && ok "stop hook passes when the override passes (exit 0)" || no "stop-gate green" "rc=$rc"
+
+# 28) the judged suite runs fmt in CHECK mode — it must not mutate the tree it
+#     judges (CON-038). Proven with a PATH-shim ruff that records its args.
+mkdir -p "$TMP/bin" "$TMP/fmtproj"
+printf '#!/usr/bin/env bash\necho "$@" > "${RUFF_ARGS_FILE:?}"\nexit 0\n' > "$TMP/bin/ruff"
+chmod +x "$TMP/bin/ruff"
+touch "$TMP/fmtproj/pyproject.toml"
+( cd "$TMP/fmtproj" && PATH="$TMP/bin:$PATH" RUFF_ARGS_FILE="$TMP/ruff.args" LOOP_FMT_CHECK=1 \
+    bash "$ROOT/adapters/stacks/python.sh" fmt ) >/dev/null 2>&1
+( cd "$TMP/fmtproj" && PATH="$TMP/bin:$PATH" RUFF_ARGS_FILE="$TMP/ruff2.args" \
+    bash "$ROOT/adapters/stacks/python.sh" fmt ) >/dev/null 2>&1
+if grep -q -- '--check' "$TMP/ruff.args" 2>/dev/null && ! grep -q -- '--check' "$TMP/ruff2.args" 2>/dev/null; then
+  ok "fmt runs --check under LOOP_FMT_CHECK=1, in-place otherwise"
+else no "fmt check-mode" "args: '$(cat "$TMP/ruff.args" 2>/dev/null)' / '$(cat "$TMP/ruff2.args" 2>/dev/null)'"; fi
+
+# 29) stage events carry duration + git SHA (CON-080), and the state file
+#     records the resolved risk profile and exit code.
+s="$(loop_status specs/000-example)"
+rd="$(dirname "$(latest_state)")"
+if [ "$s" = "completed" ] \
+   && jq -e 'select(.result=="passed" and has("duration_s") and has("head_sha"))' "$rd/events.jsonl" >/dev/null 2>&1 \
+   && [ "$(jq -r '.config.risk_profile' "$rd/state.json")" = "standard" ] \
+   && [ "$(jq -r '.exit_code' "$rd/state.json")" = "0" ]; then
+  ok "events enriched (duration_s, head_sha) + state records profile/exit_code"
+else no "events/state enrichment" "status='$s'"; fi
+
+# 30) when the stop gate gives up after N blocks, it records that durably
+#     (CON-083) instead of silently resetting.
+mkdir -p "$TMP/proj2/.loop"
+printf 'gates:\n  lint: "exit 1"\n' > "$TMP/proj2/.loop.yml"
+printf '{"session_id":"eval2"}' \
+  | CLAUDE_PROJECT_DIR="$TMP/proj2" CLAUDE_PLUGIN_ROOT="$PWD" LOOP_STOP_GATE_MAX_BLOCKS=1 \
+    bash .claude/hooks/stop-gate.sh >/dev/null 2>&1
+rc="$(printf '{"session_id":"eval2"}' \
+  | CLAUDE_PROJECT_DIR="$TMP/proj2" CLAUDE_PLUGIN_ROOT="$PWD" LOOP_STOP_GATE_MAX_BLOCKS=1 \
+    bash .claude/hooks/stop-gate.sh >/dev/null 2>&1; echo $?)"
+if [ "$rc" = "0" ] && jq -e 'select(.event=="stopgate_gave_up")' "$TMP/proj2/.loop/state/stopgate.events.jsonl" >/dev/null 2>&1; then
+  ok "stop-gate give-up is durably recorded (stopgate.events.jsonl)"
+else no "stop-gate durable record" "rc=$rc file=$(ls "$TMP/proj2/.loop/state" 2>/dev/null | paste -sd, -)"; fi
+
 echo
 if [ "$fail" -eq 0 ]; then printf 'evals: \033[32m%d passed, 0 failed\033[0m\n' "$pass"
 else printf 'evals: %d passed, \033[31m%d failed\033[0m\n' "$pass" "$fail"; fi

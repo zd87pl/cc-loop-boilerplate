@@ -7,9 +7,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 require_go() { have go || { skip "go toolchain not installed"; return 1; }; }
 
+# $LOOP_FMT_CHECK=1 -> verify formatting without rewriting (CON-038).
 verb_fmt() {
   require_go || return 0
-  run gofmt -w .
+  if [ "${LOOP_FMT_CHECK:-0}" = "1" ]; then
+    local unformatted; unformatted="$(gofmt -l . 2>/dev/null)"
+    if [ -n "$unformatted" ]; then
+      printf '    files need gofmt:\n%s\n' "$unformatted" >&2
+      return 1
+    fi
+    note "gofmt: clean"
+  else
+    run gofmt -w .
+  fi
 }
 
 verb_lint() {

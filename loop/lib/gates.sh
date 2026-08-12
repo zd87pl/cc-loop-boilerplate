@@ -37,15 +37,29 @@ gate_skip_disallowed() {
   case " ${LOOP_SKIP_IS_RED:-} " in *" $1 "*) return 0 ;; *) return 1 ;; esac
 }
 
+# gate_log_write <verb> <output> — persist bounded gate output (CON-037) so a
+# red gate leaves actionable diagnostics in the run dir, not just an exit code.
+gate_log_write() {
+  local verb="$1" cap="${LOOP_GATE_LOG_BYTES:-20000}"
+  [ -n "${LOOP_GATE_LOG_DIR:-}" ] || return 0
+  mkdir -p "$LOOP_GATE_LOG_DIR" 2>/dev/null || return 0
+  printf '%s\n' "$2" | tail -c "$cap" > "$LOOP_GATE_LOG_DIR/$(printf '%s' "$verb" | tr ':' '_').log" 2>/dev/null || true
+}
+
 # gate_run_verb <verb> — returns 0 if green/skipped, non-zero if a command failed.
+# The fmt verb runs in CHECK mode here (LOOP_FMT_CHECK=1): the judging suite
+# must never mutate the tree it judges (CON-038); in-place formatting belongs
+# to the PostToolUse hook and `make fmt`.
 gate_run_verb() {
-  local verb="$1" override out rc=0
+  local verb="$1" override out rc=0 fmt_check=0
+  [ "$verb" = "fmt" ] && fmt_check=1
   override="$(cfg ".gates.$verb" "")"
 
   if [ -n "$override" ]; then
     info "gate:$verb (override) -> $override"
-    out="$( cd "$REPO_DIR" && bash -c "$override" 2>&1 )"; rc=$?
+    out="$( cd "$REPO_DIR" && LOOP_FMT_CHECK="$fmt_check" bash -c "$override" 2>&1 )"; rc=$?
     [ -n "$out" ] && printf '%s\n' "$out" >&2
+    gate_log_write "$verb" "$out"
     if [ $rc -eq 0 ]; then gate_update "$verb" "green" 0 "$override"
     else gate_update "$verb" "red" "$rc" "$override"; fi
     return $rc
@@ -63,17 +77,21 @@ gate_run_verb() {
     return 0
   fi
 
-  local stack adapter crc ran=0 skipped_all=1
+  local stack adapter crc ran=0 skipped_all=1 all_out=""
   for stack in $stacks; do
     adapter="$ADAPTERS_DIR/stacks/$stack.sh"
     [ -f "$adapter" ] || { warn "no adapter for stack '$stack'"; continue; }
     info "gate:$verb ($stack)"
-    out="$( cd "$REPO_DIR" && bash "$adapter" "$verb" 2>&1 )"; crc=$?
+    out="$( cd "$REPO_DIR" && LOOP_FMT_CHECK="$fmt_check" bash "$adapter" "$verb" 2>&1 )"; crc=$?
     [ -n "$out" ] && printf '%s\n' "$out" >&2
+    all_out="$all_out== $stack ==
+$out
+"
     ran=1
     [ $crc -ne 0 ] && rc=$crc
     printf '%s' "$out" | grep -q '\[skip\]' || skipped_all=0
   done
+  gate_log_write "$verb" "$all_out"
 
   if   [ $rc -ne 0 ];                              then gate_update "$verb" "red" "$rc" "adapters"
   elif [ $ran -eq 1 ] && [ $skipped_all -eq 1 ];   then
@@ -94,6 +112,7 @@ gate_run_custom() {
   info "gate:custom:$name -> $cmd"
   out="$( cd "$REPO_DIR" && bash -c "$cmd" 2>&1 )"; rc=$?
   [ -n "$out" ] && printf '%s\n' "$out" >&2
+  gate_log_write "custom:$name" "$out"
   if [ $rc -eq 0 ]; then gate_update "custom:$name" "green" 0 "$cmd"
   else gate_update "custom:$name" "red" "$rc" "$cmd"; fi
   return $rc

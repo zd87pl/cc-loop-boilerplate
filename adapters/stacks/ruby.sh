@@ -14,7 +14,14 @@ tool_available() { # name reachable directly or via bundler
   have "$1" || { [ -f Gemfile ] && have bundle && bundle exec "$1" --version >/dev/null 2>&1; }
 }
 
+# $LOOP_FMT_CHECK=1 -> verify formatting without rewriting (CON-038).
 verb_fmt() {
+  if [ "${LOOP_FMT_CHECK:-0}" = "1" ]; then
+    # rubocop has no format-only check mode; the lint verb already runs the
+    # full non-mutating rubocop pass, so don't double it here.
+    skip "no non-mutating format-only check (rubocop runs under lint)"
+    return 0
+  fi
   if tool_available rubocop; then bx rubocop -A
   else skip "rubocop not available"; fi
 }

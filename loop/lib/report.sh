@@ -94,6 +94,26 @@ report_render() {
     echo "| --- | --- | --- | --- |"
     state_get_raw '.gates // {}' | jq -r 'to_entries[] | "| \(.key) | \(.value.status) | \(.value.code) | `\(.value.command)` |"'
     echo
+    # Diagnostics for every non-green gate (CON-037): the signer and the fixing
+    # agent get the WHY, not just an exit code.
+    local _redverbs _rv _rvlog
+    _redverbs="$(state_get_raw '.gates // {}' | jq -r 'to_entries[] | select(.value.status=="red") | .key')"
+    if [ -n "$_redverbs" ] && [ -n "${LOOP_GATE_LOG_DIR:-}" ]; then
+      echo "### Gate output excerpts (red gates)"
+      echo
+      for _rv in $_redverbs; do
+        _rvlog="$LOOP_GATE_LOG_DIR/$(printf '%s' "$_rv" | tr ':' '_').log"
+        [ -s "$_rvlog" ] || continue
+        echo "<details><summary><code>$_rv</code> — last 40 lines</summary>"
+        echo
+        echo '```'
+        tail -n 40 "$_rvlog"
+        echo '```'
+        echo
+        echo "</details>"
+      done
+      echo
+    fi
     echo "## Cost & iterations"
     echo
     echo "- Iterations consumed: $(state_get '.iteration') / $(state_get '.config.max_iterations')"
