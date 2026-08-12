@@ -35,7 +35,8 @@ Read `specs/constitution.md` and the active spec first.
 
 Produce a findings list. For each finding give: a stable id, a severity
 (`critical|high|medium|low`), the file and line, the requirement or invariant it
-violates, and a concrete reproduction or argument. Be specific — "this is
+violates, a concrete reproduction or argument, and `"source": "reviewer"` when
+the output is merged into the shared findings JSON (loop/findings.schema.json). Be specific — "this is
 fragile" is not a finding; "with input `''` this throws at line 42 instead of
 returning the REQ-004 error" is. If you find nothing real, say so plainly rather
 than inventing nits.

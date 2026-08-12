@@ -95,6 +95,10 @@ and the verifier's traceability matrix.
 - **CON-021** The system shall ship a deterministic eval suite that asserts its
   guardrails (halt-on-ambiguity, lint, secret/destructive veto, protected-branch
   refusal, a real gate) and shall run it with no model calls so it is safe in CI.
+- **CON-026** When a stage completes, the controller shall validate the stage's
+  declared artifacts deterministically (existence, parseability, token
+  whitelists, findings schema); if validation fails, the controller shall halt
+  rather than proceed on unvalidated model output.
 
 ### Increments
 
@@ -115,6 +119,18 @@ and the verifier's traceability matrix.
   advance to a human pre-merge gate.
 - **CON-032** Where a coverage threshold is configured, if a change lowers line
   coverage below that threshold, then verification shall fail.
+- **CON-033** The controller shall derive the review-loop finding count from a
+  schema-validated findings file, never from free text or a model-written
+  integer.
+- **CON-034** Where `required_gates` is configured, while any required gate is
+  red or was skipped in a live run, the controller shall not advance to the
+  human pre-merge gate.
+- **CON-035** When review findings exist, the controller shall block only on
+  findings at or above the configured severity threshold and shall carry
+  lower-severity findings into the persistent backlog.
+- **CON-036** When the verify stage completes, the controller shall read a
+  deterministic PASS/FAIL verdict artifact and shall halt on FAIL (or on a
+  missing/malformed verdict) before the human pre-merge gate.
 
 ### Safety, branches, and secrets
 
@@ -160,6 +176,9 @@ and the verifier's traceability matrix.
   (stage, result, duration, token usage, cost, git SHA) to the run log.
 - **CON-081** Every run shall produce an audit trail sufficient to reproduce it:
   model strings, tool versions, config hash, and base + head git SHAs.
+- **CON-082** The controller shall exit with distinct, documented codes for
+  completed, needs-clarification, halted, and partial outcomes so wrappers and
+  CI can distinguish a blocked run from a clean one.
 
 ### Data handling (GDPR-aware)
 

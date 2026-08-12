@@ -64,3 +64,30 @@ gates_all_green() {
   local reds; reds="$(state_get_raw '.gates // {}' | jq -r '[to_entries[] | select(.value.status=="red")] | length')"
   [ "${reds:-0}" -eq 0 ]
 }
+
+# gates_required_ok <required-verbs> <dry_run> — minimum-gates policy (CON-034).
+# Every required gate must be GREEN in state: 'skipped' (tool never ran) and
+# 'missing' (verb never attempted) fail a LIVE run just like 'red', with a
+# message that says how to fix it. In dry-run they only warn: the dry run is the
+# zero-cost walk that must work on machines without the target toolchain, and
+# its gate results are recorded but advisory.
+gates_required_ok() {
+  local req="${1:-}" dry="${2:-false}" v st bad=""
+  [ -n "${req// /}" ] || return 0
+  for v in $req; do
+    st="$(state_get_raw ".gates[\"$v\"] // {}" 2>/dev/null | jq -r '.status // "missing"')"
+    [ "$st" = "green" ] || bad="$bad $v:$st"
+  done
+  [ -z "$bad" ] && return 0
+  if [ "$dry" = "true" ]; then
+    warn "required gate(s) not green (dry-run, advisory):$bad"
+    type event >/dev/null 2>&1 && event "gates" "required_gate_not_green_dryrun" \
+      "$(jq -nc --arg b "${bad# }" '{gates:$b}')"
+    return 0
+  fi
+  err "required gate(s) not green:$bad — a required gate that never ran is a FAIL, not a pass."
+  err "Install the toolchain for it, or point .loop.yml gates.<verb> at your command."
+  type event >/dev/null 2>&1 && event "gates" "required_gate_not_green" \
+    "$(jq -nc --arg b "${bad# }" '{gates:$b}')"
+  return 1
+}

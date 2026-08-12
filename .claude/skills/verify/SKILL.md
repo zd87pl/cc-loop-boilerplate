@@ -23,9 +23,12 @@ Read `specs/constitution.md`, the spec, the PRD, and every ADR first.
    available) and list every uncovered requirement and every drift.
 
 ## Output
-- `traceability.md` (the matrix) and a short verdict: **PASS** only if every
-  requirement is COVERED, there is no DRIFT, and no required gate is red;
-  otherwise **FAIL** with specific reasons.
+- `traceability.md` (the matrix), a change-walkthrough (`walkthrough.md`: what
+  changed, why, risk areas — CON-016), and the verdict **token file**
+  `verify.verdict` containing exactly `PASS` or `FAIL` (CON-036): PASS only if
+  every requirement is COVERED, there is no DRIFT, and no required gate is red;
+  otherwise FAIL with the specific reasons in the matrix. The controller reads
+  the token file and halts on FAIL — write it exactly.
 
 ## Gate
 This is the human pre-merge gate. A person reviews the matrix and signs off

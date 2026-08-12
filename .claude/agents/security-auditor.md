@@ -32,6 +32,7 @@ Read `specs/constitution.md` and the active spec first.
 
 A findings list. For each: a stable id, the **CWE id**, a severity
 (`critical|high|medium|low`), file and line, the attack scenario (how it is
-exploited), and the minimal remediation. Prefer a few real, exploitable findings
+exploited), the minimal remediation, and `"source": "security-auditor"` when the
+output is merged into the shared findings JSON (loop/findings.schema.json). Prefer a few real, exploitable findings
 over a long list of theoretical ones. If the change is clean for its scope, say
 so and note what you checked.

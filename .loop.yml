@@ -86,6 +86,18 @@ gates:
   securityscan: ""               # e.g. "semgrep --config auto"
 coverage_threshold: 0            # minimum % line coverage the verifier enforces (0 = off)
 
+# Minimum-gates policy (CON-034): these gates must actually run GREEN before the
+# human pre-merge gate. A required gate that was SKIPPED (toolchain missing)
+# fails a live run — no toolchain must not read as "verified". Dry runs warn
+# only. Omit the key for the default [test]; set an explicit [] to disable.
+required_gates:
+  - test
+
+# Review-loop severity policy (CON-035): findings at or above this severity
+# block (repeat the fix cycle); anything below is carried to the backlog.
+review:
+  block_severity: high           # critical | high | medium | low
+
 # ---------------------------------------------------------------------------
 # Secret scanning (PreToolUse veto)
 # ---------------------------------------------------------------------------

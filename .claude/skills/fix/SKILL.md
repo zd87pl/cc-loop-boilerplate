@@ -17,11 +17,13 @@ Read `specs/constitution.md`, the spec, and the findings from `/review` first.
    behavior the spec did not request (that would be new drift).
 3. Re-run the gates after each fix. Reference the finding id in the commit, e.g.
    `fix(x): validate empty input (F1, REQ-004)`.
-4. Update the findings count so the controller can decide whether to loop again.
+4. Update `findings.json` (remove resolved findings, keep the schema valid) and
+   the findings count. The controller decides whether to loop again from the
+   validated JSON, not the count (CON-033).
 
 ## Output
 - Patches resolving the findings, committed on the feature branch; an updated
-  findings count.
+  `findings.json` + findings count.
 
 ## Failure handling
 If a finding cannot be fixed without changing the contract, **stop** and emit

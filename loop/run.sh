@@ -23,6 +23,7 @@ export ADAPTERS_DIR
 . "$LOOP_DIR/lib/events.sh"
 . "$LOOP_DIR/lib/git.sh"
 . "$LOOP_DIR/lib/gates.sh"
+. "$LOOP_DIR/lib/artifacts.sh"
 . "$LOOP_DIR/lib/claude.sh"
 . "$LOOP_DIR/lib/report.sh"
 . "$LOOP_DIR/lib/memory.sh"
@@ -38,7 +39,12 @@ Usage: loop/run.sh [options]
   --resume <id>    Resume a previous run id (skips already-passed stages).
   -h, --help       Show this help.
 
-Most configuration lives in .loop.yml. See ONBOARDING.md for a 5-minute start.
+Exit codes (CON-082): 0 completed, 10 needs_clarification, 20 halted,
+30 partial (a bound or gate stopped the run), 40 failed, 64 usage.
+Other non-zero codes propagate from a failing stage/CLI call.
+
+Most configuration lives in .loop.yml (override its path with LOOP_CONFIG for
+tests/fixtures). See ONBOARDING.md for a 5-minute start.
 USAGE
 }
 
@@ -65,7 +71,9 @@ need git; need jq; need yq
 $DRY_RUN || need "${CLAUDE_BIN:-claude}"
 
 cd "$ROOT_DIR"
-config_load "$ROOT_DIR/.loop.yml"
+# LOOP_CONFIG lets tests/fixtures inject a config without touching the repo's
+# .loop.yml (the eval suite proves red-gate behavior this way).
+config_load "${LOOP_CONFIG:-$ROOT_DIR/.loop.yml}"
 
 SPEC_DIR="${SPEC_DIR_ARG:-$(cfg '.spec_dir' 'specs/')}"
 BRANCH_PREFIX="$(cfg '.branch_prefix' 'loop/')"
@@ -85,6 +93,20 @@ SPEC_REVIEW_ENABLED="$(cfg_bool '.spec_review.enabled' true)"
 SPEC_REVIEW_FAIL="$(cfg '.spec_review.fail_on' 'not_ready')"          # not_ready | never
 SENSITIVE_COV="$(cfg '.spec_review.sensitive_coverage_threshold' '80')"
 COVERAGE_THRESHOLD="$(cfg '.coverage_threshold' '0')"
+
+# Review-loop severity policy (CON-035): findings at or above this severity
+# block; anything below is carried to the backlog instead of burning iterations.
+REVIEW_BLOCK_SEV="$(cfg '.review.block_severity' 'high')"
+case "$REVIEW_BLOCK_SEV" in critical|high|medium|low) : ;; *) die "review.block_severity must be critical|high|medium|low (got '$REVIEW_BLOCK_SEV')" ;; esac
+
+# Minimum-gates policy (CON-034): these gates must be GREEN — a skipped required
+# gate fails a live run (a machine with no toolchain must not look verified).
+# Absent key -> default 'test'; an explicit empty list disables the policy.
+if printf '%s' "$LOOP_CFG_JSON" | jq -e '.required_gates' >/dev/null 2>&1; then
+  REQUIRED_GATES="$(cfg_list '.required_gates' | tr '\n' ' ')"
+else
+  REQUIRED_GATES="test"
+fi
 
 # Deterministic spec lint — the cheap, model-free gate before /spec-review (SPEC-003)
 SPEC_LINT_ENABLED="$(cfg_bool '.spec_lint.enabled' true)"
@@ -212,6 +234,20 @@ fi
 
 ITER="$(state_get '.iteration' 2>/dev/null || echo 0)"
 
+# exit_for_status — map the run status to a distinct, documented exit code
+# (CON-082) so wrappers and CI can distinguish a blocked run from a clean one.
+# Defined before finish() so the EXIT trap can always call it.
+exit_for_status() {
+  case "$(state_get '.status' 2>/dev/null)" in
+    completed)           echo 0 ;;
+    needs_clarification) echo 10 ;;
+    halted)              echo 20 ;;
+    partial)             echo 30 ;;
+    failed)              echo 40 ;;
+    *)                   echo 20 ;;
+  esac
+}
+
 # Render a report no matter how we exit (safety net for the audit trail).
 finish() {
   local rc=$?
@@ -224,6 +260,9 @@ finish() {
   fi
   [ -f "$RUN_DIR/traceability.md" ] || report_write_traceability "$SPEC_PATH" "$DRY_RUN" 2>/dev/null || true
   report_render 2>/dev/null || true
+  # Record the documented exit code for this run's terminal status (CON-082).
+  jq -e . "$STATE_FILE" >/dev/null 2>&1 && state_set '.exit_code' "$(exit_for_status)" 2>/dev/null
+
   # Carry deferred items + record a digest only when state is valid JSON, so a
   # corrupt or early-aborted state cannot poison cross-run memory (SPEC-002).
   if jq -e . "$STATE_FILE" >/dev/null 2>&1; then
@@ -317,7 +356,12 @@ PERM_MODE="${LOOP_PERMISSION_MODE:-acceptEdits}"
 tools_for() {
   case "$1" in
     implement|fix) echo "Read Grep Glob Edit Write Bash Task TodoWrite" ;;
-    *)             echo "Read Grep Glob Bash Task" ;;  # spec/plan/tasks/review/verify: no Edit/Write
+    # Non-implement stages get Write (no Edit): their contract REQUIRES writing
+    # run-dir artifacts (verdicts, findings, maps), and CON-071 permits parent-
+    # session writes. Read-only-ness of the REPO is enforced by the PreToolUse
+    # guard (stage-scoped: writes outside $RUN_DIR are denied), not by tool
+    # omission — omission never stopped Bash redirects anyway (CON-072).
+    *)             echo "Read Grep Glob Bash Task Write" ;;
   esac
 }
 stage_prompt() { # stage_prompt <name>
@@ -330,16 +374,27 @@ stage_prompt() { # stage_prompt <name>
     plan)        echo "/${SKILL_PREFIX}plan $common Read $RUN_DIR/context-map.md. Write the technical plan to $RUN_DIR/plan.md." ;;
     tasks)     echo "/${SKILL_PREFIX}tasks $common Read $RUN_DIR/plan.md. Write an ordered, independently testable task list to $RUN_DIR/tasks.md." ;;
     implement) echo "/${SKILL_PREFIX}implement $common Read $RUN_DIR/tasks.md. Implement the next unfinished task with a test, on branch $BRANCH in $REPO_DIR. Commit per task." ;;
-    review)    echo "/${SKILL_PREFIX}review $common Adversarially review the diff on $BRANCH and run a security pass. Write findings (with severities + CWE where applicable) to $RUN_DIR/findings.json as {\"findings\":[...]}, and write the count to $RUN_DIR/findings.count." ;;
-    fix)       echo "/${SKILL_PREFIX}fix $common Read $RUN_DIR/findings.json. Apply the smallest fixes that resolve the findings, re-running gates. Update $RUN_DIR/findings.count." ;;
-    verify)      echo "/${SKILL_PREFIX}verify $common Build the SPEC/PRD/ADR ⇄ code ⇄ test traceability matrix to $RUN_DIR/traceability.md, report drift and coverage, and write a short change-walkthrough (what changed, why, risk areas) to $RUN_DIR/walkthrough.md. Do not edit code." ;;
+    review)    echo "/${SKILL_PREFIX}review $common Risk class: ${RISK:-standard}. Adversarially review the diff on $BRANCH and run a security pass. Write findings to $RUN_DIR/findings.json matching $ROOT_DIR/loop/findings.schema.json — {\"findings\":[{\"id\",\"severity\":\"critical|high|medium|low\",\"title\",...}]} with CWE ids and a \"source\" of reviewer|security-auditor where applicable — and write the bare integer count to $RUN_DIR/findings.count. The controller blocks on findings at or above severity '$REVIEW_BLOCK_SEV' and carries the rest to the backlog, so severity accuracy matters." ;;
+    fix)       echo "/${SKILL_PREFIX}fix $common Read $RUN_DIR/findings.json. Apply the smallest fixes that resolve the findings (severity '$REVIEW_BLOCK_SEV' and above block the run), re-running gates. Update $RUN_DIR/findings.json to remove resolved findings and update $RUN_DIR/findings.count." ;;
+    verify)      echo "/${SKILL_PREFIX}verify $common Risk class: ${RISK:-standard}; effective coverage bar: ${COVERAGE_THRESHOLD:-0}%. Build the SPEC/PRD/ADR ⇄ code ⇄ test traceability matrix to $RUN_DIR/traceability.md, report drift and coverage, and write a short change-walkthrough (what changed, why, risk areas) to $RUN_DIR/walkthrough.md. Then write a single verdict token to $RUN_DIR/verify.verdict: exactly PASS (every requirement COVERED, no DRIFT, no red gate) or FAIL. Do not edit code." ;;
   esac
 }
 
-read_findings_count() {
-  local f="$RUN_DIR/findings.count" n=""
-  [ -f "$f" ] && n="$(tr -dc '0-9' < "$f" 2>/dev/null)"
-  echo "${n:-0}"
+# review_blocking_count — findings at or above the blocking severity, derived
+# from schema-validated findings.json (CON-033). The model-written findings.count
+# is advisory only: a mismatch is logged, never steered by. Prints nothing and
+# returns 1 on a missing/malformed findings file so the caller fails CLOSED —
+# a review that crashed mid-write must not look like a clean review.
+review_blocking_count() {
+  local n total advisory
+  n="$(findings_count "$RUN_DIR/findings.json" "$REVIEW_BLOCK_SEV")" || return 1
+  total="$(findings_count "$RUN_DIR/findings.json" low)" || return 1
+  advisory="$(tr -dc '0-9' < "$RUN_DIR/findings.count" 2>/dev/null || true)"
+  if [ -n "$advisory" ] && [ "$advisory" != "$total" ]; then
+    event "review" "count_mismatch" "$(jq -nc --argjson d "$total" --arg a "$advisory" '{derived:$d, advisory:$a}')"
+  fi
+  event "review" "findings" "$(jq -nc --argjson b "$n" --argjson t "$total" --arg s "$REVIEW_BLOCK_SEV" '{blocking:$b, total:$t, block_severity:$s}')"
+  printf '%s' "$n"
 }
 
 # stage_run <name> — advance one stage. Honors resume (skips passed stages),
@@ -380,6 +435,15 @@ stage_run() {
     warn "stage ✘ $name (rc=$rc)"
     return $rc
   fi
+  # Fail CLOSED on missing/invalid artifacts (CON-026): a zero exit while the
+  # declared files are absent or unparseable must not count as a pass.
+  if ! artifacts_validate "$name"; then
+    stage_update_str "$name" status failed
+    stage_update_str "$name" ended_at "$(now_utc)"
+    event "$name" "artifact_invalid"
+    halt "stage '$name' produced missing or invalid artifacts (see $RUN_DIR)" needs_clarification
+    return 10
+  fi
   stage_update_str "$name" status passed
   stage_update_str "$name" ended_at "$(now_utc)"
   event "$name" "passed"
@@ -388,14 +452,17 @@ stage_run() {
 }
 
 # Dry-run behavior per stage: produce a stub artifact and exercise real gates.
+# LOOP_DRYRUN_FAULT injects controlled misbehavior (dry-run only) so the eval
+# suite can prove the fail-closed paths with zero model calls:
+#   bad_verdict | caveats_verdict | bad_findings | missing_findings | verify_fail
 stage_dryrun() {
-  local name="$1"
+  local name="$1" fault="${LOOP_DRYRUN_FAULT:-}"
   case "$name" in
     spec)
-      # Honor the contract: if the real spec carries open questions, halt.
+      # Honor the contract: if the real spec carries open questions, note them;
+      # the controller's deterministic scan right after this stage does the halt.
       if grep -q 'NEEDS CLARIFICATION:' "$SPEC_PATH"; then
         clarification_add "$(grep 'NEEDS CLARIFICATION:' "$SPEC_PATH" | head -1)"
-        return 0  # caller's scan handles real runs; for dry-run we note + continue example has none
       fi
       printf '# Normalized spec (dry-run stub)\nSee %s\n' "$SPEC_PATH" > "$RUN_DIR/spec.normalized.md" ;;
     spec_review)
@@ -405,6 +472,10 @@ stage_dryrun() {
       acs="$(grep -cE '^\| *AC-[0-9]'  "$SPEC_PATH" 2>/dev/null)"; acs="${acs:-0}"
       grep -q 'NEEDS CLARIFICATION:' "$SPEC_PATH" 2>/dev/null && verdict="NOT_READY"
       grep -Eiq 'auth|passwd|password|secret|credential|\bPII\b|payment|gdpr|encryption|api[_-]?key' "$SPEC_PATH" 2>/dev/null && risk="sensitive"
+      case "$fault" in
+        bad_verdict)     verdict="REDDY" ;;   # malformed on purpose: must fail closed
+        caveats_verdict) verdict="CAVEATS" ;;
+      esac
       printf '%s' "$verdict" > "$RUN_DIR/spec-review.verdict"
       printf '%s' "$risk"    > "$RUN_DIR/spec-review.riskclass"
       {
@@ -444,9 +515,22 @@ stage_dryrun() {
       printf '# Implement (dry-run stub) — no code generated\n' > "$RUN_DIR/implement.md"
       gates_run_suite >/dev/null 2>&1 || true ;;          # run the REAL gate suite
     review)
-      if [ -f "$RUN_DIR/.dry_fixed" ]; then echo 0 > "$RUN_DIR/findings.count"
-      else echo 1 > "$RUN_DIR/findings.count"
-           printf '{"findings":[{"id":"F1","severity":"low","cwe":"CWE-20","title":"dry-run synthetic finding"}]}\n' > "$RUN_DIR/findings.json"
+      case "$fault" in
+        missing_findings) return 0 ;;                                   # wrote nothing: must fail closed
+        bad_findings)
+          printf '{"findings":"3 findings (2 high)"}\n' > "$RUN_DIR/findings.json"
+          printf '3 findings (2 high)\n' > "$RUN_DIR/findings.count"
+          return 0 ;;
+      esac
+      if [ -f "$RUN_DIR/.dry_fixed" ]; then
+        printf '{"findings":[]}\n' > "$RUN_DIR/findings.json"
+        echo 0 > "$RUN_DIR/findings.count"
+      else
+        # 'high' on purpose: it sits at the default blocking threshold, so the
+        # dry run exercises one full review -> fix -> review cycle; a lower
+        # severity would be deferred to the backlog instead of fixed.
+        printf '{"findings":[{"id":"F1","severity":"high","cwe":"CWE-20","title":"dry-run synthetic finding","source":"reviewer"}]}\n' > "$RUN_DIR/findings.json"
+        echo 1 > "$RUN_DIR/findings.count"
       fi ;;
     fix)
       touch "$RUN_DIR/.dry_fixed"; echo 0 > "$RUN_DIR/findings.count"
@@ -460,6 +544,8 @@ stage_dryrun() {
         echo "- **Why:** demonstrates the comprehension artifact a real verify run produces."
         echo "- **Risk areas:** none (dry-run)."
       } > "$RUN_DIR/walkthrough.md"
+      if [ "$fault" = "verify_fail" ]; then printf 'FAIL' > "$RUN_DIR/verify.verdict"
+      else printf 'PASS' > "$RUN_DIR/verify.verdict"; fi
       # Declare a deferred item; the controller carries it into the cross-run backlog.
       printf '%s\n' "Optimization: add property-based fuzz tests for the parser (deferred from verify)" > "$RUN_DIR/backlog.add" ;;
   esac
@@ -477,7 +563,7 @@ if grep -qE '^[[:space:]]*[-*]?[[:space:]]*NEEDS CLARIFICATION:' "$SPEC_PATH"; t
   while IFS= read -r _c; do clarification_add "$_c"; done \
     < <(grep -E '^[[:space:]]*[-*]?[[:space:]]*NEEDS CLARIFICATION:' "$SPEC_PATH")
   halt "spec has unresolved NEEDS CLARIFICATION markers" needs_clarification
-  exit 0
+  exit "$(exit_for_status)"
 fi
 
 # Deterministic spec-lint — the cheap, model-free gate before the model review
@@ -490,7 +576,7 @@ if $SPEC_LINT_ENABLED && [ -f "$SCRIPTS_DIR/spec-lint.sh" ]; then
     cat "$RUN_DIR/spec-lint.log" >&2
     event "spec" "spec_lint_failed"
     halt "spec-lint found structural errors (see $RUN_DIR/spec-lint.log)" needs_clarification
-    exit 0
+    exit "$(exit_for_status)"
   fi
 fi
 
@@ -499,8 +585,17 @@ fi
 VERDICT=""; RISK=""
 if $SPEC_REVIEW_ENABLED; then
   stage_run spec_review || exit $?
-  VERDICT="$(tr -d '[:space:]' < "$RUN_DIR/spec-review.verdict" 2>/dev/null)"; [ -n "$VERDICT" ] || VERDICT="READY"
-  RISK="$(tr -d '[:space:]' < "$RUN_DIR/spec-review.riskclass" 2>/dev/null)"; [ -n "$RISK" ] || RISK="standard"
+  # Fail-closed reads (CON-026): a missing or malformed token file must halt,
+  # never default to the permissive value. (artifacts_validate already vetoed
+  # garbage inside stage_run; this guards the resume path and future edits.)
+  if ! VERDICT="$(artifact_token "$RUN_DIR/spec-review.verdict" READY CAVEATS NOT_READY)"; then
+    halt "spec-review verdict missing/malformed (expected READY|CAVEATS|NOT_READY in $RUN_DIR/spec-review.verdict)" needs_clarification
+    exit "$(exit_for_status)"
+  fi
+  if ! RISK="$(artifact_token "$RUN_DIR/spec-review.riskclass" low standard sensitive)"; then
+    halt "spec-review risk class missing/malformed (expected low|standard|sensitive in $RUN_DIR/spec-review.riskclass)" needs_clarification
+    exit "$(exit_for_status)"
+  fi
   state_set_str '.spec.readiness' "$VERDICT"
   state_set_str '.spec.risk_class' "$RISK"
   event "spec_review" "verdict" "$(jq -nc --arg v "$VERDICT" --arg r "$RISK" '{verdict:$v, risk_class:$r}')"
@@ -515,11 +610,16 @@ if $SPEC_REVIEW_ENABLED; then
   if [ "$VERDICT" = "NOT_READY" ] && [ "$SPEC_REVIEW_FAIL" = "not_ready" ]; then
     clarification_add "spec readiness = NOT_READY — resolve the critical gaps in spec-review.md ('start here')"
     halt "spec is NOT_READY; resolve the critical gaps in the scorecard" needs_clarification
-    exit 0
+    exit "$(exit_for_status)"
+  fi
+  # CAVEATS proceeds, but the caveat is carried — never silently dropped (CON-019).
+  if [ "$VERDICT" = "CAVEATS" ]; then
+    backlog_add "CAVEATS: $SPEC_ID passed spec review with caveats — see spec-review.md (run $RUN_ID)"
+    event "spec_review" "caveats_carried"
   fi
 fi
 
-human_gate spec     "Approve the spec (readiness=${VERDICT:-n/a}, risk=${RISK:-n/a}) and proceed to PLAN?" || { halt "spec gate declined" halted; exit 0; }
+human_gate spec     "Approve the spec (readiness=${VERDICT:-n/a}, risk=${RISK:-n/a}) and proceed to PLAN?" || { halt "spec gate declined" halted; exit "$(exit_for_status)"; }
 
 # Codebase reconnaissance before planning (SPEC-002): cheap, read-only, grounds
 # the plan in the code that exists.
@@ -529,35 +629,70 @@ stage_run plan      || exit $?
 stage_run tasks     || exit $?
 stage_run implement || exit $?
 
-# review <-> fix loop (CON-031, CON-050, CON-052)
+# review <-> fix loop (CON-031, CON-050, CON-052). The loop keys on the number
+# of BLOCKING findings (>= REVIEW_BLOCK_SEV), derived from validated JSON
+# (CON-033/035) — never on a model-written integer.
 stage_run review || exit $?
-findings="$(read_findings_count)"; prev=-1
+findings="$(review_blocking_count)" || { halt "review produced no readable findings file" needs_clarification; exit "$(exit_for_status)"; }
+prev=-1
 while [ "${findings:-0}" -gt 0 ]; do
   if [ "$ITER" -ge "$MAX_ITER" ]; then halt "max_iterations ($MAX_ITER) reached" partial; break; fi
   if ! budget_ok; then halt "cost ceiling (\$$COST_CEILING_USD) reached" partial; break; fi
-  if [ "$findings" -eq "$prev" ]; then halt "no measurable progress (findings stuck at $findings)" halted; break; fi
+  if [ "$findings" -eq "$prev" ]; then halt "no measurable progress (blocking findings stuck at $findings)" halted; break; fi
   prev="$findings"
   stage_run fix || exit $?
   gates_run_suite >/dev/null 2>&1 || warn "gates red after fix"
   ITER=$((ITER+1)); state_set '.iteration' "$ITER"
   event "controller" "iteration" "$(jq -nc --argjson i "$ITER" '{iteration:$i}')"
   stage_run review || exit $?
-  findings="$(read_findings_count)"
+  findings="$(review_blocking_count)" || { halt "review produced no readable findings file" needs_clarification; exit "$(exit_for_status)"; }
 done
 
-# If we halted inside the loop, stop here (report rendered by trap).
-case "$(state_get '.status')" in halted|partial|needs_clarification) exit 0 ;; esac
+# Carry the surviving non-blocking findings into the persistent backlog
+# (CON-019/CON-035): deferred is recorded, never silently dropped.
+if [ -f "$RUN_DIR/findings.json" ]; then
+  DEFERRED=0
+  while IFS= read -r _d; do
+    [ -n "$_d" ] || continue
+    backlog_add "$_d"
+    DEFERRED=$((DEFERRED+1))
+  done < <(findings_below "$RUN_DIR/findings.json" "$REVIEW_BLOCK_SEV" 2>/dev/null)
+  state_set '.review.deferred' "$DEFERRED"
+  [ "$DEFERRED" -gt 0 ] && info "carried $DEFERRED non-blocking finding(s) to the backlog"
+fi
 
-# Final gate suite must be green before verify's human pre-merge gate (CON-031).
+# If we halted inside the loop, stop here (report rendered by trap).
+case "$(state_get '.status')" in halted|partial|needs_clarification) exit "$(exit_for_status)" ;; esac
+
+# Final gate suite must be green before verify's human pre-merge gate (CON-031),
+# and every REQUIRED gate must have actually run green — a skipped required gate
+# fails a live run (CON-034): no toolchain must not read as "verified".
 if ! gates_run_suite >/dev/null 2>&1 || ! gates_all_green; then
-  halt "quality gates are red; cannot proceed to pre-merge" partial; exit 0
+  halt "quality gates are red; cannot proceed to pre-merge" partial; exit "$(exit_for_status)"
+fi
+if ! gates_required_ok "$REQUIRED_GATES" "$DRY_RUN"; then
+  halt "required gate(s) did not run green (see report); install the toolchain or set .loop.yml gates.<verb>" partial
+  exit "$(exit_for_status)"
 fi
 
 stage_run verify || exit $?
-report_write_traceability "$SPEC_PATH" "$DRY_RUN"
+# The verifier's own verdict gates the run (CON-036): FAIL means an UNCOVERED
+# requirement or DRIFT — the change must not reach the human pre-merge gate.
+if ! VERIFY_VERDICT="$(artifact_token "$RUN_DIR/verify.verdict" PASS FAIL)"; then
+  halt "verify verdict missing/malformed (expected PASS|FAIL in $RUN_DIR/verify.verdict)" partial
+  exit "$(exit_for_status)"
+fi
+if [ "$VERIFY_VERDICT" = "FAIL" ]; then
+  halt "verification FAILED — uncovered requirements or drift; see $RUN_DIR/traceability.md" partial
+  exit "$(exit_for_status)"
+fi
+# Defensive only: the verifier writes the real matrix (validated above); never
+# overwrite it with the spec-derived stub (that destroyed the evidence a human
+# was asked to sign off on).
+[ -f "$RUN_DIR/traceability.md" ] || report_write_traceability "$SPEC_PATH" "$DRY_RUN"
 
 human_gate premerge "Approve the traceability matrix and open a PR (never auto-merge)?" \
-  || { halt "pre-merge gate declined" halted; exit 0; }
+  || { halt "pre-merge gate declined" halted; exit "$(exit_for_status)"; }
 
 # ---------------------------------------------------------------------------
 # Finalize: head SHA, status, PR (never merge)
@@ -591,4 +726,4 @@ open_pr
 
 ok "loop complete: status=$(state_get '.status')"
 info "report: $RUN_DIR/report.md"
-exit 0
+exit "$(exit_for_status)"
