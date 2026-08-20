@@ -147,6 +147,6 @@ report_render() {
     echo "content transmitted to the model API during stage calls. PII/secrets are"
     echo "kept out of this report and the event stream via the configured redaction"
     echo "patterns, and \`runs_dir\` is gitignored by default (CON-090..092)."
-  } > "$f"
+  } | redact_stream > "$f"
   ok "report written: $f"
 }

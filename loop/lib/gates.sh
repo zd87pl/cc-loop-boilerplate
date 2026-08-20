@@ -39,11 +39,13 @@ gate_skip_disallowed() {
 
 # gate_log_write <verb> <output> — persist bounded gate output (CON-037) so a
 # red gate leaves actionable diagnostics in the run dir, not just an exit code.
+# Output is redacted on the way in (CON-090): tool output can echo env/config.
 gate_log_write() {
   local verb="$1" cap="${LOOP_GATE_LOG_BYTES:-20000}"
   [ -n "${LOOP_GATE_LOG_DIR:-}" ] || return 0
   mkdir -p "$LOOP_GATE_LOG_DIR" 2>/dev/null || return 0
-  printf '%s\n' "$2" | tail -c "$cap" > "$LOOP_GATE_LOG_DIR/$(printf '%s' "$verb" | tr ':' '_').log" 2>/dev/null || true
+  printf '%s\n' "$2" | redact_stream | tail -c "$cap" \
+    > "$LOOP_GATE_LOG_DIR/$(printf '%s' "$verb" | tr ':' '_').log" 2>/dev/null || true
 }
 
 # gate_run_verb <verb> — returns 0 if green/skipped, non-zero if a command failed.
@@ -58,7 +60,7 @@ gate_run_verb() {
   if [ -n "$override" ]; then
     info "gate:$verb (override) -> $override"
     out="$( cd "$REPO_DIR" && LOOP_FMT_CHECK="$fmt_check" bash -c "$override" 2>&1 )"; rc=$?
-    [ -n "$out" ] && printf '%s\n' "$out" >&2
+    [ -n "$out" ] && printf '%s\n' "$out" | redact_stream >&2
     gate_log_write "$verb" "$out"
     if [ $rc -eq 0 ]; then gate_update "$verb" "green" 0 "$override"
     else gate_update "$verb" "red" "$rc" "$override"; fi
@@ -83,7 +85,7 @@ gate_run_verb() {
     [ -f "$adapter" ] || { warn "no adapter for stack '$stack'"; continue; }
     info "gate:$verb ($stack)"
     out="$( cd "$REPO_DIR" && LOOP_FMT_CHECK="$fmt_check" bash "$adapter" "$verb" 2>&1 )"; crc=$?
-    [ -n "$out" ] && printf '%s\n' "$out" >&2
+    [ -n "$out" ] && printf '%s\n' "$out" | redact_stream >&2
     all_out="$all_out== $stack ==
 $out
 "
@@ -111,7 +113,7 @@ gate_run_custom() {
   local name="$1" cmd="$2" out rc=0
   info "gate:custom:$name -> $cmd"
   out="$( cd "$REPO_DIR" && bash -c "$cmd" 2>&1 )"; rc=$?
-  [ -n "$out" ] && printf '%s\n' "$out" >&2
+  [ -n "$out" ] && printf '%s\n' "$out" | redact_stream >&2
   gate_log_write "custom:$name" "$out"
   if [ $rc -eq 0 ]; then gate_update "custom:$name" "green" 0 "$cmd"
   else gate_update "custom:$name" "red" "$rc" "$cmd"; fi
@@ -136,6 +138,34 @@ gates_run_suite() {
   done < <(printf '%s' "${LOOP_CFG_JSON:-{}}" | jq -r '.gates.custom // {} | keys[]' 2>/dev/null)
   if [ $overall -eq 0 ]; then ok "gate suite: no failures"; else err "gate suite: failures present"; fi
   return $overall
+}
+
+# gate_check_protected_paths <base-sha> — model-independent backstop for
+# CON-045: red when the branch diff (base..worktree, uncommitted included)
+# touches a protected path. The write-time PreToolUse veto is the first line;
+# this catches anything that slipped past it (hook disabled, git plumbing,
+# tools the matcher never saw). Live runs only — a dry run executes in the
+# source checkout, where the operator's own uncommitted edits are none of our
+# business.
+gate_check_protected_paths() {
+  local base="${1:-}" f bad=""
+  if [ -z "$base" ] || [ "$base" = "null" ]; then
+    gate_update "protected-paths" "skipped" 0 "(no base sha)"; return 0
+  fi
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    protected_path_match "$f" && bad="$bad $f"
+  done < <(git -C "$REPO_DIR" diff --name-only "$base" 2>/dev/null)
+  if [ -n "$bad" ]; then
+    err "gate:protected-paths -> branch modifies protected file(s):$bad (CON-045)"
+    gate_log_write "protected-paths" "modified protected path(s):$bad
+The guardrail chain (hooks, settings, constitution, .loop.yml) is not editable
+from inside the loop. Revert these files or have a human apply the change."
+    gate_update "protected-paths" "red" 1 "protected paths"
+    return 1
+  fi
+  gate_update "protected-paths" "green" 0 "protected paths"
+  return 0
 }
 
 # gates_all_green — true if no gate is red in the current state.

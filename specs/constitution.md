@@ -155,6 +155,14 @@ and the verifier's traceability matrix.
   then the operation shall be denied (PreToolUse exit code 2).
 - **CON-044** The system shall never auto-merge; a human shall open or promote
   the PR to ready.
+- **CON-045** While a controller-spawned stage session runs, the system shall
+  deny modification of protected paths — the guardrail chain itself (hook
+  scripts, `.claude/settings.json`, this constitution, `.loop.yml`) — at write
+  time, and before pre-merge the controller shall red-gate any branch diff that
+  touches a protected path. The set is configurable (`protected_paths`); a human
+  running a self-hosting loop may lift the write-time veto for a run with
+  `LOOP_ALLOW_PROTECTED=1` (the diff barrier still reports what changed).
+  Human-supervised interactive sessions are exempt from the write-time veto.
 
 ### Bounds
 
@@ -179,6 +187,11 @@ and the verifier's traceability matrix.
   `verifier`) shall be configured read-only and shall not be granted edit tools.
 - **CON-071** All file edits shall route through the `implementer` subagent or
   the parent session so permission prompts and hooks are honored.
+- **CON-072** While a stage session other than implement/fix runs, file writes
+  shall be scoped to that stage's contract: run-directory artifacts and `.loop/`
+  state only, never the repository tree. Enforcement is mechanical (the
+  PreToolUse guard, keyed on the controller-set stage marker) — withholding
+  edit tools alone is not enforcement, since it never stopped a Bash redirect.
 
 ### Observability and audit
 

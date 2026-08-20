@@ -57,6 +57,10 @@ stage_status() { state_get '(.stages[] | select(.name=="'"$1"'") | .status) // "
 # which runs gates outside any loop run (no STATE_FILE).
 gate_update() {
   [ -n "${STATE_FILE:-}" ] && [ -f "$STATE_FILE" ] || return 0
+  # The command/note can embed config values; redact before it lands in state
+  # (CON-090 covers the event stream and state, not just the report).
+  local _cmd; _cmd="$(printf '%s' "${4:-}" | redact_stream)"
+  set -- "$1" "$2" "${3:-0}" "$_cmd"
   jq --arg verb "$1" --arg s "$2" --argjson code "${3:-0}" --arg cmd "${4:-}" --arg now "$(now_utc)" '
       .gates[$verb] = {status:$s, code:$code, command:$cmd, updated_at:$now}
     | .updated_at = $now' "$STATE_FILE" | state_write

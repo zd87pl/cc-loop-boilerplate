@@ -26,6 +26,12 @@ protected_branches:              # the loop refuses to commit/push to any of the
   - master
   - release
   - production
+protected_paths:                 # stage sessions may not MODIFY these (CON-045):
+  - .claude/settings.json        # the guardrail chain enforces itself — a
+  - .claude/settings.local.json  # PreToolUse veto at write time plus a diff
+  - ".claude/hooks/*"            # barrier before pre-merge. Globs, repo-relative.
+  - specs/constitution.md        # Interactive sessions are exempt; a self-hosting
+  - .loop.yml                    # run needs LOOP_ALLOW_PROTECTED=1.
 
 # ---------------------------------------------------------------------------
 # Loop bounds (hard stops — the controller cannot exceed these)

@@ -88,6 +88,14 @@ HUMAN_GATES="$(cfg_list '.require_human_gates' | tr '\n' ' ')"
 export PROTECTED_BRANCHES="$(cfg_list '.protected_branches' | tr '\n' ' ')"
 [ -z "${PROTECTED_BRANCHES// /}" ] && export PROTECTED_BRANCHES="main master"
 
+# Guardrail config flows to the hooks via env (CON-043/045/090): the PreToolUse
+# guard and redaction honor .loop.yml without re-parsing YAML themselves.
+_pp="$(cfg_list '.protected_paths' | tr '\n' ' ')"
+[ -n "${_pp// /}" ] && export LOOP_PROTECTED_PATHS="$_pp"
+export LOOP_SECRET_SCAN="$(cfg_bool '.secret_scan' true)"
+export LOOP_SECRET_SCANNER="$(cfg '.secret_scanner' 'auto')"
+export LOOP_REDACT_PATTERNS="$(cfg_list '.redact_patterns')"
+
 # First-pass spec readiness review (SPEC-001)
 SPEC_REVIEW_ENABLED="$(cfg_bool '.spec_review.enabled' true)"
 SPEC_REVIEW_FAIL="$(cfg '.spec_review.fail_on' 'not_ready')"          # not_ready | never
@@ -161,7 +169,8 @@ EVENTS_FILE="$RUN_DIR/events.jsonl"
 # actionable output for the fixing agent and the report, not just an exit code.
 LOOP_GATE_LOG_DIR="$RUN_DIR/gates"
 LOOP_GATE_LOG_BYTES="$(cfg '.gate_log_bytes' '20000')"
-export RUN_DIR STATE_FILE EVENTS_FILE LOOP_GATE_LOG_DIR LOOP_GATE_LOG_BYTES
+LOOP_RUN_DIR="$RUN_DIR"   # the hook's name for it (stage write scoping, CON-072)
+export RUN_DIR STATE_FILE EVENTS_FILE LOOP_GATE_LOG_DIR LOOP_GATE_LOG_BYTES LOOP_RUN_DIR
 mkdir -p "$RUN_DIR"
 # Initialize the event stream only for a FRESH run; resuming must preserve the
 # append-only audit trail (CON-080) rather than truncate it.
@@ -420,6 +429,7 @@ stage_run() {
   fi
 
   state_set_str '.current_stage' "$name"
+  export LOOP_STAGE="$name"   # hooks scope writes by stage (CON-072)
   stage_update_str "$name" status running
   stage_update_str "$name" started_at "$(now_utc)"
   bump_attempts "$name"
@@ -764,6 +774,16 @@ fi
 
 # If we halted inside the loop, stop here (report rendered by trap).
 case "$(state_get '.status')" in halted|partial|needs_clarification) exit "$(exit_for_status)" ;; esac
+
+# The diff itself must not touch protected paths (CON-045). Write-time vetoes
+# are the first line; this is the model-independent backstop. Live runs only —
+# a dry run executes in the source checkout among the operator's own edits.
+if ! $DRY_RUN; then
+  if ! gate_check_protected_paths "$(state_get '.git.base_sha')"; then
+    halt "branch modifies protected path(s) — the guardrail chain is not editable by the loop (CON-045)" halted
+    exit "$(exit_for_status)"
+  fi
+fi
 
 # Final gate suite must be green before verify's human pre-merge gate (CON-031),
 # and every REQUIRED gate must have actually run green — a skipped required gate

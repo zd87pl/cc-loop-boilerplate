@@ -84,9 +84,14 @@ rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"g
 rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git clean -df ."}}')"
 [ "$rc" = "2" ] && ok "git clean -df vetoed (exit 2)" || no "git clean veto" "exit=$rc"
 
-# 7e) rm with -fr flag order is still vetoed
-rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm -fr /tmp/x"}}')"
-[ "$rc" = "2" ] && ok "rm -fr vetoed (exit 2)" || no "rm -fr veto" "exit=$rc"
+# 7e) rm veto targets the CATASTROPHIC class only: roots, system depth-1 dirs,
+#     homes, .git — while deep scratch cleanup (mktemp dirs) stays allowed.
+rc="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm -fr /usr"}}')"
+r2="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm -rf .git"}}')"
+r3="$(hook_exit pretool-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm -fr /tmp/x"}}')"
+if [ "$rc" = "2" ] && [ "$r2" = "2" ] && [ "$r3" = "0" ]; then
+  ok "rm veto: /usr and .git denied, /tmp/x scratch allowed"
+else no "rm veto scope" "usr=$rc git=$r2 tmp=$r3"; fi
 
 # 7f) a force-push with the flag at the END of the command is still vetoed
 #     (regression: 'git push origin main -f' slipped past the pattern list)
@@ -336,6 +341,143 @@ rc="$(printf '{"session_id":"eval2"}' \
 if [ "$rc" = "0" ] && jq -e 'select(.event=="stopgate_gave_up")' "$TMP/proj2/.loop/state/stopgate.events.jsonl" >/dev/null 2>&1; then
   ok "stop-gate give-up is durably recorded (stopgate.events.jsonl)"
 else no "stop-gate durable record" "rc=$rc file=$(ls "$TMP/proj2/.loop/state" 2>/dev/null | paste -sd, -)"; fi
+
+# ---------------------------------------------------------------------------
+# Guardrail integrity (CON-042/043/045/072/090)
+# ---------------------------------------------------------------------------
+
+# guard <json> [K=V ...] — run the PreToolUse guard with a clean guard env.
+guard() {
+  local json="$1"; shift
+  (
+    unset LOOP_STAGE LOOP_RUN_DIR LOOP_PROTECTED_PATHS LOOP_ALLOW_PROTECTED \
+          LOOP_SECRET_SCAN LOOP_SECRET_SCANNER
+    local kv; for kv in "$@"; do export "${kv?}"; done
+    printf '%s' "$json" | CLAUDE_PROJECT_DIR="$PWD" bash .claude/hooks/pretool-guard.sh >/dev/null 2>&1
+    echo $?
+  )
+}
+bashjson() { jq -nc --arg c "$1" '{tool_name:"Bash", tool_input:{command:$c}}'; }
+writejson() { jq -nc --arg f "$1" --arg c "${2:-hello}" '{tool_name:"Write", tool_input:{file_path:$f, content:$c}}'; }
+
+# 31) hook and controller share ONE destructive-command implementation: verdicts
+#     must agree, and match expectations — including forms the old substring
+#     matcher missed (git -C, +refspec, combined -fD, sudo/env prefixes) and
+#     false positives it used to have (echo "git reset --hard").
+ld() { ( . loop/lib/common.sh; looks_destructive "$1" && echo 2 || echo 0 ); }
+par_fail=""
+while IFS='|' read -r want c; do
+  [ -n "$c" ] || continue
+  h="$(guard "$(bashjson "$c")")"; l="$(ld "$c")"
+  { [ "$h" = "$want" ] && [ "$l" = "$want" ]; } || par_fail="$par_fail [$c: want=$want hook=$h lib=$l]"
+done <<'CMDS'
+2|git -C sub reset --hard HEAD~1
+2|git push --force-with-lease origin x && git push --force origin x
+2|git push origin +main
+2|git branch -fD topic
+2|sudo git clean -fdx
+2|FOO=1 git push -f origin main
+2|rm -rf .git
+0|git push --force-with-lease origin x
+0|git clean -n -fd
+0|git push origin main
+0|rm -rf build/
+0|echo git reset --hard is dangerous
+0|git log --oneline -5
+CMDS
+[ -z "$par_fail" ] && ok "destructive veto: hook == controller lib, incl. -C/+ref/-fD/prefix forms" \
+  || no "destructive parity" "$par_fail"
+
+# 32) protected paths (CON-045): stage sessions cannot touch the guardrail
+#     chain; interactive sessions can; LOOP_ALLOW_PROTECTED=1 lifts it; a
+#     custom protected_paths set REPLACES the default.
+r1="$(guard "$(writejson .loop.yml)" LOOP_STAGE=implement)"
+r2="$(guard "$(writejson .loop.yml)" LOOP_STAGE=implement LOOP_ALLOW_PROTECTED=1)"
+r3="$(guard "$(writejson .loop.yml)")"
+r4="$(guard "$(bashjson 'echo x >> .claude/settings.json')" LOOP_STAGE=implement)"
+r5="$(guard "$(bashjson 'cat .claude/settings.json')" LOOP_STAGE=implement)"
+r6="$(guard "$(bashjson "sed -n '1,5p' specs/constitution.md")" LOOP_STAGE=implement)"
+r7="$(guard "$(bashjson 'sed -i s/a/b/ .loop.yml')" LOOP_STAGE=implement)"
+r8="$(guard "$(writejson docs/x.md)" LOOP_STAGE=implement 'LOOP_PROTECTED_PATHS=docs/*')"
+r9="$(guard "$(writejson .loop.yml)" LOOP_STAGE=implement 'LOOP_PROTECTED_PATHS=docs/*')"
+if [ "$r1$r2$r3$r4$r5$r6$r7$r8$r9" = "200200220" ]; then
+  ok "protected paths: stage-scoped veto, reads pass, sed needs -i, set is overridable"
+else no "protected paths" "got $r1$r2$r3$r4$r5$r6$r7$r8$r9 want 200200220"; fi
+
+# 33) stage write scoping (CON-072): non-implement stages write run artifacts
+#     and .loop/ only; implement writes the repo; interactive is unscoped.
+s1="$(guard "$(writejson "$TMP/rd/findings.json")" LOOP_STAGE=review "LOOP_RUN_DIR=$TMP/rd")"
+s2="$(guard "$(writejson src/x.py)" LOOP_STAGE=review "LOOP_RUN_DIR=$TMP/rd")"
+s3="$(guard "$(writejson "$PWD/src/x.py")" LOOP_STAGE=review "LOOP_RUN_DIR=$TMP/rd")"
+s4="$(guard "$(writejson .loop/memory.md)" LOOP_STAGE=review "LOOP_RUN_DIR=$TMP/rd")"
+s5="$(guard "$(writejson src/x.py)" LOOP_STAGE=implement)"
+s6="$(guard "$(writejson src/x.py)")"
+if [ "$s1$s2$s3$s4$s5$s6" = "022000" ]; then
+  ok "stage scoping: review writes run dir/.loop only; implement + interactive unscoped"
+else no "stage scoping" "got $s1/$s2/$s3/$s4/$s5/$s6 want 0/2/2/0/0/0"; fi
+
+# 34) the secret scan is closed over every write surface: MultiEdit edits[] and
+#     NotebookEdit new_source are scanned; REMOVING a secret (old_string) is not
+#     blocked by the secret it removes. (Keys assembled at runtime.)
+akid2="AKIA""IOSFODNN7EXAMPLE"
+ghp2="ghp_""abcdefghijklmnopqrstuv"
+m1="$(guard "$(jq -nc --arg s "$akid2" '{tool_name:"MultiEdit", tool_input:{file_path:"a.txt", edits:[{old_string:"x",new_string:"clean"},{old_string:"y",new_string:("key="+$s)}]}}')")"
+m2="$(guard "$(jq -nc --arg s "$ghp2" '{tool_name:"NotebookEdit", tool_input:{notebook_path:"n.ipynb", new_source:("t="+$s)}}')")"
+m3="$(guard "$(jq -nc --arg s "$akid2" '{tool_name:"Edit", tool_input:{file_path:"a.txt", old_string:("key="+$s), new_string:"key=REMOVED"}}')")"
+if [ "$m1" = "2" ] && [ "$m2" = "2" ] && [ "$m3" = "0" ]; then
+  ok "secret scan covers MultiEdit/NotebookEdit; secret REMOVAL is not blocked"
+else no "secret closure" "multi=$m1 nb=$m2 removal=$m3"; fi
+
+# 35) .loop.yml secret_scan/secret_scanner are honored (they were documented
+#     but ignored): scan off lets a key through; builtin works without tools.
+c1="$(guard "$(writejson a.txt "key=$akid2")" LOOP_SECRET_SCAN=false)"
+c2="$(guard "$(writejson a.txt "key=$akid2")" LOOP_SECRET_SCANNER=builtin)"
+if [ "$c1" = "0" ] && [ "$c2" = "2" ]; then
+  ok "secret_scan=false honored; scanner=builtin denies without external tools"
+else no "secret config honor" "off=$c1 builtin=$c2"; fi
+
+# 36) redaction (CON-090) is real end-to-end: a gate that echoes a token leaves
+#     [REDACTED] — not the token — in the gate log, the report, and state.
+printf 'gates:\n  test: "echo url=%s; exit 1"\n' "$ghp2" > "$TMP/leak.yml"
+s="$(LOOP_CONFIG="$TMP/leak.yml" loop_status specs/000-example)"
+rd="$(dirname "$(latest_state)")"
+if [ "$s" = "partial" ] \
+   && ! grep -rq "$ghp2" "$rd/gates" "$rd/report.md" "$rd/state.json" 2>/dev/null \
+   && grep -q 'REDACTED' "$rd/gates/test.log" 2>/dev/null \
+   && grep -q 'REDACTED' "$rd/report.md" 2>/dev/null; then
+  ok "token echoed by a gate is redacted in log + report + state"
+else no "redaction e2e" "status='$s' leak=$(grep -rl "$ghp2" "$rd" 2>/dev/null | paste -sd, -)"; fi
+u="$(printf 'x %s y' "$ghp2" | { . loop/lib/common.sh; redact_stream; })"
+case "$u" in *"$ghp2"*) no "redact_stream unit" "token survived" ;; *REDACTED*) ok "redact_stream scrubs builtin token shapes" ;; *) no "redact_stream unit" "no marker: $u" ;; esac
+
+# 37) the protected-paths diff barrier (CON-045 backstop) red-gates a branch
+#     that modified the guardrail chain, and passes a clean one.
+mkdir -p "$TMP/pp/specs"
+( cd "$TMP/pp" && git init -q . \
+  && printf 'v1\n' > specs/constitution.md && printf 'code\n' > app.txt \
+  && git add -A && git -c user.email=e@x -c user.name=n commit -qm base )
+ppbase="$(git -C "$TMP/pp" rev-parse HEAD)"
+printf 'tampered\n' >> "$TMP/pp/specs/constitution.md"
+p1="$( ( unset STATE_FILE LOOP_GATE_LOG_DIR LOOP_PROTECTED_PATHS
+        REPO_DIR="$TMP/pp" ADAPTERS_DIR="$PWD/adapters"
+        . loop/lib/common.sh; . loop/lib/state.sh; . loop/lib/gates.sh
+        gate_check_protected_paths "$ppbase" >/dev/null 2>&1; echo $? ) )"
+git -C "$TMP/pp" checkout -- specs/constitution.md
+p2="$( ( unset STATE_FILE LOOP_GATE_LOG_DIR LOOP_PROTECTED_PATHS
+        REPO_DIR="$TMP/pp" ADAPTERS_DIR="$PWD/adapters"
+        . loop/lib/common.sh; . loop/lib/state.sh; . loop/lib/gates.sh
+        gate_check_protected_paths "$ppbase" >/dev/null 2>&1; echo $? ) )"
+if [ "$p1" = "1" ] && [ "$p2" = "0" ]; then
+  ok "protected-diff barrier: tampered branch red, clean branch green"
+else no "protected-diff barrier" "tampered=$p1 clean=$p2"; fi
+
+# 38) settings.json and the plugin hooks.json must wire the SAME PreToolUse
+#     surface — matcher drift would silently unguard one install mode.
+mset="$(jq -r '.hooks.PreToolUse[0].matcher' .claude/settings.json)"
+mplug="$(jq -r '.hooks.PreToolUse[0].matcher' .claude/hooks/hooks.json)"
+if [ "$mset" = "$mplug" ] && [ "$mset" = "Edit|MultiEdit|NotebookEdit|Write|Bash" ]; then
+  ok "PreToolUse matcher identical in settings.json and hooks.json"
+else no "matcher parity" "settings='$mset' plugin='$mplug'"; fi
 
 echo
 if [ "$fail" -eq 0 ]; then printf 'evals: \033[32m%d passed, 0 failed\033[0m\n' "$pass"
