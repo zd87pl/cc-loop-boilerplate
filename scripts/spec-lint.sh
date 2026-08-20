@@ -4,15 +4,42 @@
 # mechanical problems (structure, ids, coverage, placeholders) so the model is
 # reserved for judgment. Exit 0 = clean; non-zero = errors found.
 #
-# Usage: spec-lint.sh <spec.md> [--strict]   (--strict also fails on warnings)
+# Usage: spec-lint.sh <file.md> [--strict|--ids-only]
+#   --strict    also fail on warnings
+#   --ids-only  run only the duplicate-id + placeholder checks — for documents
+#               that are not specs but carry rule ids (the constitution). The
+#               duplicate-CON-id bug shipped once; this makes it structurally
+#               impossible to ship again.
 set -uo pipefail
 
-SPEC="${1:-}"; STRICT="${2:-}"
-[ -n "$SPEC" ] && [ -f "$SPEC" ] || { echo "usage: spec-lint.sh <spec.md> [--strict]" >&2; exit 64; }
+SPEC="${1:-}"; MODE="${2:-}"
+[ -n "$SPEC" ] && [ -f "$SPEC" ] || { echo "usage: spec-lint.sh <file.md> [--strict|--ids-only]" >&2; exit 64; }
+STRICT=""; [ "$MODE" = "--strict" ] && STRICT="--strict"
 
 errors=0; warns=0
 err()  { printf '  \033[31m✗\033[0m %s\n' "$1" >&2; errors=$((errors+1)); }
 warn() { printf '  \033[33m!\033[0m %s\n' "$1" >&2; warns=$((warns+1)); }
+
+# 0) duplicate DEFINITIONS for any id family (REQ/AC/CON/ADR/NFR/PRD). A
+#    definition is a table row or a bold list bullet that OPENS with the id —
+#    inline references in prose never count.
+for prefix in REQ AC CON ADR NFR PRD; do
+  def_ids="$( { grep -E "^[|][[:space:]]*${prefix}-[0-9]+" "$SPEC" | grep -oE "^[|][[:space:]]*${prefix}-[0-9]+" | grep -oE "${prefix}-[0-9]+";
+                grep -E "^[[:space:]]*[-*][[:space:]]*\*\*${prefix}-[0-9]+\*\*" "$SPEC" | grep -oE "${prefix}-[0-9]+"; } 2>/dev/null || true)"
+  [ -n "$def_ids" ] || continue
+  dup_ids="$(printf '%s\n' "$def_ids" | sort | uniq -d | tr '\n' ' ')"
+  [ -z "${dup_ids// /}" ] || err "duplicate $prefix ids defined: $dup_ids"
+done
+
+if [ "$MODE" = "--ids-only" ]; then
+  # placeholders still count as errors in ids-only mode
+  grep -qE '^[[:space:]]*([-*>][[:space:]]*)?(TODO|TBD|FIXME|XXX)\b' "$SPEC" \
+    && err "unresolved TODO/TBD/FIXME/XXX marker present"
+  if [ "$errors" -gt 0 ]; then
+    printf '%s: \033[31m%d error(s)\033[0m (ids-only)\n' "$SPEC" "$errors" >&2; exit 1
+  fi
+  printf '%s: \033[32mclean\033[0m (ids-only)\n' "$SPEC"; exit 0
+fi
 
 # 1) metadata: Spec ID + a valid Status
 grep -qiE '^[|][[:space:]]*Spec ID' "$SPEC" || err "missing 'Spec ID' in the metadata table"
@@ -30,8 +57,15 @@ req_rows="$(grep -E '^[|][[:space:]]*REQ-[0-9]+' "$SPEC" || true)"
 req_ids="$(printf '%s\n' "$req_rows" | grep -oE 'REQ-[0-9]+' || true)"
 nreq="$(printf '%s\n' "$req_ids" | grep -c 'REQ-' || true)"
 [ "${nreq:-0}" -ge 1 ] || err "no REQ-NNN requirement rows found"
-dups="$(printf '%s\n' "$req_ids" | sort | uniq -d | tr '\n' ' ')"
-[ -z "${dups// /}" ] || err "duplicate REQ ids: $dups"
+# (duplicate ids are caught by check 0 for every id family)
+
+# 2b) EARS phrasing: a requirement without 'shall' is usually a wish, not a
+#     requirement (warning — some rows legitimately quote external contracts)
+while IFS= read -r row; do
+  [ -n "$row" ] || continue
+  printf '%s' "$row" | grep -qiE '\bshall\b' \
+    || warn "$(printf '%s' "$row" | grep -oE 'REQ-[0-9]+' | head -1) does not use EARS 'shall' phrasing"
+done <<< "$req_rows"
 
 # 3) every requirement row carries a non-empty acceptance check (last column)
 while IFS= read -r row; do

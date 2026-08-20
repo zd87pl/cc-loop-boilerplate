@@ -39,9 +39,16 @@ One task → one focused change → one gate pass. **No big-bang generation.**
 - **Safety:** never commit/push to a protected branch, never run destructive git
   operations, never expose secrets, never auto-merge. A human signs off and
   merges.
+- **The guardrail chain is not yours to edit.** Hook scripts, settings, the
+  constitution, and `.loop.yml` are protected paths: stage sessions cannot
+  modify them, and a pre-merge diff barrier red-gates any branch that did.
+- **Stay inside your stage's write scope.** Only implement/fix touch the repo;
+  every other stage writes run-directory artifacts. Files changed that the
+  plan/tasks never named are drift — warned or halted per risk.
 - **Gates are deterministic.** Formatting, lint, type-check, test, build, and
   secret/security scans are enforced by scripts/hooks you cannot opt out of.
-  Don't work around a failing gate — fix its cause.
+  Don't work around a failing gate — fix its cause. A red gate's output is in
+  the run dir (`gates/*.log`); treat it as a finding.
 
 ## Where things are
 

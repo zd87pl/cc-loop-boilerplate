@@ -173,6 +173,10 @@ and the verifier's traceability matrix.
 - **CON-052** While the loop is running, if an iteration produces no measurable
   progress (no stage advanced and no gate flipped to green), then the controller
   shall halt to avoid spinning.
+- **CON-053** When the implemented diff contains files that neither the plan
+  nor the task list named, the system shall respond per the risk-calibrated
+  `drift_action` — warn by default, halt for sensitive changes — and record
+  the unplanned files in the state and event stream either way.
 
 ### Human gates
 

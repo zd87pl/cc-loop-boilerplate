@@ -816,6 +816,24 @@ fi
 # If we halted inside the loop, stop here (report rendered by trap).
 case "$(state_get '.status')" in halted|partial|needs_clarification) exit "$(exit_for_status)" ;; esac
 
+# Plan-files drift (CON-053): files changed on the branch that neither the plan
+# nor the task list named. Deterministic complement to the verifier's semantic
+# drift check; the response calibrates to risk (drift_action: off|warn|halt).
+# Live runs only — a dry run has no branch diff of its own.
+if ! $DRY_RUN && [ "$DRIFT_ACTION" != "off" ]; then
+  if drifted="$(gate_check_plan_drift "$(state_get '.git.base_sha')" "$RUN_DIR/plan.md" "$RUN_DIR/tasks.md")"; then :; else
+    _dl="$(printf '%s' "$drifted" | tr '\n' ' ')"
+    event "controller" "plan_drift" "$(jq -nc --arg f "$_dl" --arg a "$DRIFT_ACTION" '{files:$f, action:$a}')"
+    state_set_str '.drift.unplanned_files' "$_dl"
+    if [ "$DRIFT_ACTION" = "halt" ]; then
+      gate_update "plan-drift" "red" 1 "unplanned files: $_dl"
+      halt "plan drift: the diff contains files the plan/tasks never named: $_dl (risk '$PROFILE' halts on drift)" partial
+      exit "$(exit_for_status)"
+    fi
+    warn "plan drift (advisory): unplanned files: $_dl — traceability should explain them"
+  fi
+fi
+
 # The diff itself must not touch protected paths (CON-045). Write-time vetoes
 # are the first line; this is the model-independent backstop. Live runs only —
 # a dry run executes in the source checkout among the operator's own edits.

@@ -85,7 +85,10 @@ models:
 # ---------------------------------------------------------------------------
 gates:
   fmt: ""                        # e.g. "make fmt"
-  lint: ""                       # e.g. "golangci-lint run"
+  lint: "bash scripts/lint.sh"   # SELF-verification: this repo lints its own
+                                 # shell/JSON/constitution (skips honestly when
+                                 # a tool is missing). Replace for your stack,
+                                 # or set "" to use the auto-detected adapter.
   typecheck: ""                  # e.g. "mypy ."
   test: ""                       # e.g. "pnpm test --filter changed"
   build: ""                      # e.g. "make build"

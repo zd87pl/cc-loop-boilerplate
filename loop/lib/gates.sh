@@ -168,6 +168,35 @@ from inside the loop. Revert these files or have a human apply the change."
   return 0
 }
 
+# gate_check_plan_drift <base-sha> <plan.md> <tasks.md> — plan-files drift
+# (CON-053): changed files (base..worktree, uncommitted included) that neither
+# the plan nor the task list ever named. The deterministic complement to the
+# verifier's semantic drift check — it needs no model and cannot be sweet-talked.
+# Prints the unplanned files one per line and returns 1 when any exist.
+# Matching is by full repo-relative path or basename (plans often name files
+# without their eventual directory). A plan that names no files at all yields
+# no verdict (return 0) — there is nothing to be drifted from.
+gate_check_plan_drift() {
+  local base="${1:-}" plan="${2:-}" tasks="${3:-}" f bn unplanned=""
+  { [ -n "$base" ] && [ "$base" != "null" ]; } || return 0
+  [ -f "$plan" ] || [ -f "$tasks" ] || return 0
+  local named
+  named="$(grep -ohE '[A-Za-z0-9_./-]+\.[A-Za-z0-9_]+' "$plan" "$tasks" 2>/dev/null \
+           | sed 's#^\./##' | sort -u)"
+  [ -n "$named" ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    bn="$(basename "$f")"
+    printf '%s\n' "$named" | grep -qxF "$f"  && continue
+    printf '%s\n' "$named" | grep -qxF "$bn" && continue
+    unplanned="${unplanned}${f}
+"
+  done < <(git -C "$REPO_DIR" diff --name-only "$base" 2>/dev/null)
+  [ -n "$unplanned" ] || return 0
+  printf '%s' "$unplanned"
+  return 1
+}
+
 # gates_all_green — true if no gate is red in the current state.
 gates_all_green() {
   local reds; reds="$(state_get_raw '.gates // {}' | jq -r '[to_entries[] | select(.value.status=="red")] | length')"

@@ -5,8 +5,9 @@ gates actually execute (not skip) and the verifier has something concrete to
 trace. It implements [`specs/000-example/spec.md`](../../specs/000-example/spec.md).
 
 ```sh
-# From this directory — the python adapter runs the suite as a real gate:
-bash ../../adapters/stacks/python.sh test       # python3 -m unittest discover
+# From this directory — the python adapter runs the suite as a real gate
+# (pytest when installed, else python3 -m unittest discover):
+bash ../../adapters/stacks/python.sh test
 python3 duration.py 1h30m                        # -> 5400
 ```
 

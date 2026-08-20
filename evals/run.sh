@@ -544,6 +544,53 @@ if [ "$n" = "3" ] && grep -q 'r5' "$TMP/mm.md" && ! grep -q '— r1$' "$TMP/mm.m
   ok "memory pruned to max_entries and redacted on write"
 else no "memory hygiene" "sections=$n r1=$(grep -c '— r1$' "$TMP/mm.md" 2>/dev/null) leak=$(grep -c "$ghp2" "$TMP/mm.md" 2>/dev/null)"; fi
 
+# ---------------------------------------------------------------------------
+# Drift detection + self-verification (CON-053, self-lint)
+# ---------------------------------------------------------------------------
+
+# 43) plan-files drift: a changed file the plan/tasks never named is detected;
+#     naming it (path or basename) clears it; a plan naming no files yields no
+#     verdict.
+mkdir -p "$TMP/dr"
+( cd "$TMP/dr" && git init -q . && printf 'a\n' > a.py && printf 'b\n' > b.py \
+  && git add -A && git -c user.email=e@x -c user.name=n commit -qm base )
+drbase="$(git -C "$TMP/dr" rev-parse HEAD)"
+printf 'x\n' >> "$TMP/dr/a.py"; printf 'x\n' >> "$TMP/dr/b.py"
+printf 'Plan: touch a.py only\n' > "$TMP/plan1.md"
+printf 'Plan: touch a.py and b.py\n' > "$TMP/plan2.md"
+printf 'Plan: no file names here\n' > "$TMP/plan3.md"
+drift() { ( REPO_DIR="$TMP/dr" ADAPTERS_DIR="$PWD/adapters"
+            . loop/lib/common.sh; . loop/lib/state.sh; . loop/lib/gates.sh
+            out="$(gate_check_plan_drift "$drbase" "$1" /dev/null)"; printf '%s:%s' "$?" "$out" ); }
+d1="$(drift "$TMP/plan1.md")"; d2="$(drift "$TMP/plan2.md")"; d3="$(drift "$TMP/plan3.md")"
+case "$d1" in 1:*b.py*) c1=ok ;; *) c1="$d1" ;; esac
+if [ "$c1" = "ok" ] && [ "$d2" = "0:" ] && [ "$d3" = "0:" ]; then
+  ok "plan drift: unplanned file detected, named files clear, empty plan is no verdict"
+else no "plan drift" "d1='$d1' d2='$d2' d3='$d3'"; fi
+
+# 44) spec-lint --ids-only makes the duplicate-rule-id bug class structurally
+#     unshippable (it shipped once): dup CON definitions fail, the real
+#     constitution passes.
+printf -- '- **CON-001** first rule.\n- **CON-001** second rule, same id.\n' > "$TMP/dupcon.md"
+r_dup="$(bash scripts/spec-lint.sh "$TMP/dupcon.md" --ids-only >/dev/null 2>&1; echo $?)"
+r_real="$(bash scripts/spec-lint.sh specs/constitution.md --ids-only >/dev/null 2>&1; echo $?)"
+if [ "$r_dup" = "1" ] && [ "$r_real" = "0" ]; then
+  ok "spec-lint --ids-only: duplicate rule ids fail, real constitution clean"
+else no "ids-only lint" "dup=$r_dup real=$r_real"; fi
+
+# 45) the loop passes its own lint gate (self-verification; wired as this
+#     repo's gates.lint override, so the Stop hook runs it too).
+r="$(bash scripts/lint.sh >/dev/null 2>&1; echo $?)"
+[ "$r" = "0" ] && ok "self-lint clean (scripts/lint.sh — the repo's own gates.lint)" \
+  || no "self-lint" "rc=$r"
+
+# 46) doctor exercises the guardrail self-checks (matcher parity + unique ids).
+dout="$(bash scripts/doctor.sh 2>&1)"
+if printf '%s' "$dout" | grep -q 'matcher identical' \
+   && printf '%s' "$dout" | grep -q 'constitution ids are unique'; then
+  ok "doctor runs guardrail self-checks (matcher parity, constitution ids)"
+else no "doctor self-checks" "$(printf '%s' "$dout" | grep -cE 'matcher|constitution') matching lines"; fi
+
 echo
 if [ "$fail" -eq 0 ]; then printf 'evals: \033[32m%d passed, 0 failed\033[0m\n' "$pass"
 else printf 'evals: %d passed, \033[31m%d failed\033[0m\n' "$pass" "$fail"; fi
