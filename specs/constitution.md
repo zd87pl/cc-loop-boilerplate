@@ -180,6 +180,16 @@ and the verifier's traceability matrix.
   sign-off before any code is written (configurable; on by default).
 - **CON-061** Before opening a PR, the system shall require human sign-off on the
   verifier's traceability matrix (configurable; on by default).
+- **CON-062** Every human-gate outcome shall be recorded in a durable trust
+  ledger. A gate may be auto-approved ("autopass") only under an explicit
+  opt-in policy — the gate is listed, the run's risk class is within the
+  configured ceiling, and the ledger shows the configured number of
+  consecutive human approvals for that gate — and each autopass shall itself
+  be recorded (in the ledger and the event stream) without extending the
+  streak, so delegation never feeds on itself. A human decline resets the
+  streak. When a gate prompts, the system shall present the evidence being
+  signed (verdicts, gate states, findings, diff summary, artifact paths) —
+  a bare y/N is not informed sign-off.
 
 ### Roles and least privilege
 

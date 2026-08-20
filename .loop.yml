@@ -141,7 +141,20 @@ explore:
 memory:
   enabled: true                  # load prior-run digests at start; append one at end
   file: .loop/memory.md          # cross-run memory (gitignored; survives `make clean`)
-  backlog_file: .loop/backlog.md # carried-forward deferred items
+  backlog_file: .loop/backlog.md # carried-forward deferred items (deduplicated)
+  max_entries: 20                # newest digests kept; older ones pruned (hygiene)
+  trust_file: .loop/trust.jsonl  # durable ledger of human-gate decisions (CON-062)
+
+# Opt-in gate delegation (CON-062) — OFF by default. When enabled, a listed
+# gate may pass without a prompt ONLY if the run's risk class is within
+# max_risk AND the trust ledger shows >= min_streak consecutive HUMAN
+# approvals for that gate (a decline resets the streak; autopasses are
+# recorded but never count toward it).
+human_gates_autopass:
+  enabled: false
+  gates: [spec]                  # premerge is deliberately not listed
+  max_risk: low
+  min_streak: 3
 
 # ---------------------------------------------------------------------------
 # PR behavior

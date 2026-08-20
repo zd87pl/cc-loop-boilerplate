@@ -125,6 +125,8 @@ EXPLORE_ENABLED="$(cfg_bool '.explore.enabled' true)"
 export MEMORY_ENABLED="${LOOP_MEMORY_ENABLED:-$(cfg_bool '.memory.enabled' true)}"
 export MEMORY_FILE="${LOOP_MEMORY_FILE:-$ROOT_DIR/$(cfg '.memory.file' '.loop/memory.md')}"
 export BACKLOG_FILE="${LOOP_BACKLOG_FILE:-$ROOT_DIR/$(cfg '.memory.backlog_file' '.loop/backlog.md')}"
+export TRUST_FILE="${LOOP_TRUST_FILE:-$ROOT_DIR/$(cfg '.memory.trust_file' '.loop/trust.jsonl')}"
+export MEMORY_MAX_ENTRIES="$(cfg '.memory.max_entries' '20')"
 
 # Per-stage default model tier — the single source of truth, so the model a
 # stage actually runs with always matches what seed_state records in state.json.
@@ -354,22 +356,61 @@ halt() { # halt <reason> <status>
 
 budget_ok() { awk -v c="$COST_CEILING_USD" -v s="$(cost_spent)" 'BEGIN{exit !(s<c)}'; }
 
+# human_gate_context <name> — the decision surface (CON-060/061): a one-line
+# y/N is not informed sign-off. Show WHAT is being approved and where the
+# evidence lives, before asking.
+human_gate_context() {
+  local name="$1"
+  case "$name" in
+    spec)
+      log ""
+      info "── spec gate: approving CODE GENERATION from this contract ──"
+      log "   spec:       $SPEC_PATH"
+      log "   readiness:  ${VERDICT:-n/a}   risk: ${RISK:-n/a}   (scorecard: $RUN_DIR/spec-review.md)"
+      log "   normalized: $RUN_DIR/spec.normalized.md"
+      if [ -f "$RUN_DIR/open-questions.md" ]; then
+        log "   open questions: $(grep -c '^- ' "$RUN_DIR/open-questions.md" 2>/dev/null || echo 0)  ($RUN_DIR/open-questions.md)"
+      fi
+      log "" ;;
+    premerge)
+      log ""
+      info "── pre-merge gate: approving a PR from this evidence ──"
+      log "   verify:     ${VERIFY_VERDICT:-n/a}   traceability: $RUN_DIR/traceability.md"
+      log "   gates:      $(state_get_raw '.gates // {}' | jq -r 'to_entries | map("\(.key)=\(.value.status)") | join("  ")' 2>/dev/null)"
+      log "   findings:   deferred=$(state_get '.review.deferred // 0') (backlog)   iterations=$(state_get '.iteration')"
+      log "   diff:       $(git -C "$REPO_DIR" diff --shortstat "$(state_get '.git.base_sha')" 2>/dev/null | sed 's/^ *//')"
+      log "   cost:       \$$(state_get '.cost.spent_usd // 0')   branch: $BRANCH"
+      log "   walkthrough: $RUN_DIR/walkthrough.md"
+      log "" ;;
+  esac
+}
+
 human_gate() { # human_gate <gate-name> <prompt>
   local name="$1" prompt="$2"
   case " $HUMAN_GATES " in *" $name "*) : ;; *) return 0 ;; esac
   event "$name" "human_gate_wait"
+  human_gate_context "$name"
   if $DRY_RUN || $ASSUME_YES; then
     info "[auto-approve] human gate '$name' ($($DRY_RUN && echo dry-run || echo --yes))"
-    event "$name" "human_gate_auto_approved"; return 0
+    event "$name" "human_gate_auto_approved"; trust_record "$name" auto_approved
+    return 0
+  fi
+  # Opt-in delegation (CON-062): only on a recorded streak of HUMAN approvals,
+  # only for configured gates, only within the configured risk ceiling.
+  if autopass_ok "$name" "${PROFILE:-standard}"; then
+    warn "[autopass] gate '$name' auto-approved by OPT-IN policy: >=$(cfg '.human_gates_autopass.min_streak' '3') consecutive human approvals on record, risk '${PROFILE:-standard}' within '$(cfg '.human_gates_autopass.max_risk' 'low')' (CON-062; ledger: $TRUST_FILE)"
+    event "$name" "human_gate_autopass"; trust_record "$name" autopass
+    return 0
   fi
   if [ ! -t 0 ]; then
     warn "human gate '$name' needs approval but stdin is not a TTY (CON-060/061)"
+    trust_record "$name" no_tty
     return 1
   fi
   printf '%s%s%s [y/N] ' "$C_YEL" "$prompt" "$C_RST" >&2; read -r ans
   case "${ans:-}" in
-    y|Y|yes|YES) event "$name" "human_gate_approved"; return 0 ;;
-    *)           event "$name" "human_gate_declined"; return 1 ;;
+    y|Y|yes|YES) event "$name" "human_gate_approved"; trust_record "$name" approved; return 0 ;;
+    *)           event "$name" "human_gate_declined"; trust_record "$name" declined; return 1 ;;
   esac
 }
 

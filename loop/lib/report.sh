@@ -135,6 +135,16 @@ report_render() {
     echo
     if [ -f "$RUN_DIR/walkthrough.md" ]; then cat "$RUN_DIR/walkthrough.md"; else echo "_not generated_"; fi
     echo
+    echo "## Human decisions (trust ledger, CON-062)"
+    echo
+    if [ -f "${TRUST_FILE:-/nonexistent}" ]; then
+      local hd
+      hd="$(jq -r --arg r "$(state_get '.run_id')" \
+        'select(.run_id==$r) | "- `\(.gate)`: **\(.decision)** at \(.ts)"' \
+        "$TRUST_FILE" 2>/dev/null)"
+      if [ -n "$hd" ]; then printf '%s\n' "$hd"; else echo "_none recorded for this run_"; fi
+    else echo "_no ledger yet_"; fi
+    echo
     echo "## Carried-forward backlog (cross-run)"
     echo
     if [ -n "${BACKLOG_FILE:-}" ] && [ -f "$BACKLOG_FILE" ]; then

@@ -23,6 +23,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 # caller's environment (fixture injection).
 loop_status() {
   LOOP_RUNS_DIR="$TMP/runs" LOOP_MEMORY_FILE="$TMP/mem.md" LOOP_BACKLOG_FILE="$TMP/bk.md" \
+  LOOP_TRUST_FILE="$TMP/trust.jsonl" \
     bash loop/run.sh --dry-run --spec "$1" --yes >/dev/null 2>&1 || true
   local sf; sf="$(ls -1dt "$TMP"/runs/run-* 2>/dev/null | head -1)/state.json"
   jq -r '.status // "MISSING"' "$sf" 2>/dev/null || echo "MISSING"
@@ -31,6 +32,7 @@ loop_status() {
 loop_status_rc() {
   local rc
   LOOP_RUNS_DIR="$TMP/runs" LOOP_MEMORY_FILE="$TMP/mem.md" LOOP_BACKLOG_FILE="$TMP/bk.md" \
+  LOOP_TRUST_FILE="$TMP/trust.jsonl" \
     bash loop/run.sh --dry-run --spec "$1" --yes >/dev/null 2>&1; rc=$?
   local sf; sf="$(ls -1dt "$TMP"/runs/run-* 2>/dev/null | head -1)/state.json"
   printf '%s %s' "$(jq -r '.status // "MISSING"' "$sf" 2>/dev/null || echo MISSING)" "$rc"
@@ -478,6 +480,69 @@ mplug="$(jq -r '.hooks.PreToolUse[0].matcher' .claude/hooks/hooks.json)"
 if [ "$mset" = "$mplug" ] && [ "$mset" = "Edit|MultiEdit|NotebookEdit|Write|Bash" ]; then
   ok "PreToolUse matcher identical in settings.json and hooks.json"
 else no "matcher parity" "settings='$mset' plugin='$mplug'"; fi
+
+# ---------------------------------------------------------------------------
+# Informed humans, trust ledger, memory hygiene (CON-060/061/062, CON-090)
+# ---------------------------------------------------------------------------
+
+# 39) every gate outcome lands in the trust ledger, and the gate PROMPT is
+#     preceded by the evidence being signed (a bare y/N is not sign-off).
+rm -f "$TMP/trust.jsonl"
+LOOP_RUNS_DIR="$TMP/runs" LOOP_MEMORY_FILE="$TMP/mem.md" LOOP_BACKLOG_FILE="$TMP/bk.md" \
+LOOP_TRUST_FILE="$TMP/trust.jsonl" \
+  bash loop/run.sh --dry-run --spec specs/000-example --yes >/dev/null 2>"$TMP/gates.err" || true
+g_spec="$(jq -sr '[.[] | select(.gate=="spec" and .decision=="auto_approved")] | length' "$TMP/trust.jsonl" 2>/dev/null)"
+g_pm="$(  jq -sr '[.[] | select(.gate=="premerge" and .decision=="auto_approved")] | length' "$TMP/trust.jsonl" 2>/dev/null)"
+if [ "${g_spec:-0}" -ge 1 ] && [ "${g_pm:-0}" -ge 1 ] \
+   && grep -q 'spec gate: approving CODE GENERATION' "$TMP/gates.err" \
+   && grep -q 'pre-merge gate: approving a PR from this evidence' "$TMP/gates.err" \
+   && grep -q 'traceability:' "$TMP/gates.err"; then
+  ok "trust ledger records gate outcomes; gates show the evidence being signed"
+else no "informed gates + ledger" "spec=$g_spec pm=$g_pm ctx=$(grep -c 'gate:' "$TMP/gates.err" 2>/dev/null)"; fi
+
+# 40) autopass is OPT-IN and conservative: needs enabled+listed+risk<=ceiling+
+#     human streak; declines reset it; autopasses never extend it.
+ap() { # ap <cfg-json> <ledger-file> <gate> <risk> -> rc
+  ( TRUST_FILE="$2"
+    . loop/lib/common.sh; . loop/lib/config.sh; . loop/lib/memory.sh
+    LOOP_CFG_JSON="$1"
+    autopass_ok "$3" "$4" >/dev/null 2>&1; echo $? )
+}
+CFG_ON='{"human_gates_autopass":{"enabled":true,"gates":["spec"],"max_risk":"standard","min_streak":3}}'
+CFG_OFF='{"human_gates_autopass":{"enabled":false,"gates":["spec"],"max_risk":"standard","min_streak":3}}'
+printf '%s\n%s\n%s\n' '{"gate":"spec","decision":"approved"}' '{"gate":"spec","decision":"approved"}' '{"gate":"spec","decision":"approved"}' > "$TMP/led3.jsonl"
+printf '%s\n%s\n%s\n%s\n' '{"gate":"spec","decision":"approved"}' '{"gate":"spec","decision":"approved"}' '{"gate":"spec","decision":"approved"}' '{"gate":"spec","decision":"declined"}' > "$TMP/led_dec.jsonl"
+printf '%s\n%s\n%s\n%s\n%s\n' '{"gate":"spec","decision":"approved"}' '{"gate":"spec","decision":"approved"}' '{"gate":"spec","decision":"autopass"}' '{"gate":"spec","decision":"autopass"}' '{"gate":"spec","decision":"autopass"}' > "$TMP/led_ap.jsonl"
+a1="$(ap "$CFG_ON" "$TMP/led3.jsonl" spec low)"          # all conditions met
+a2="$(ap "$CFG_ON" "$TMP/led3.jsonl" spec sensitive)"    # risk above ceiling
+a3="$(ap "$CFG_ON" "$TMP/led3.jsonl" premerge low)"      # gate not listed
+a4="$(ap "$CFG_OFF" "$TMP/led3.jsonl" spec low)"         # not enabled
+a5="$(ap "$CFG_ON" "$TMP/led_dec.jsonl" spec low)"       # decline resets streak
+a6="$(ap "$CFG_ON" "$TMP/led_ap.jsonl" spec low)"        # autopasses don't count
+if [ "$a1$a2$a3$a4$a5$a6" = "011111" ]; then
+  ok "autopass: opt-in only, risk-capped, human-streak-fed, decline-reset"
+else no "autopass policy" "got $a1$a2$a3$a4$a5$a6 want 011111"; fi
+
+# 41) the backlog deduplicates: the same deferred finding carried by every run
+#     must not pile up as identical lines.
+rm -f "$TMP/bl.md"
+( BACKLOG_FILE="$TMP/bl.md" MEMORY_ENABLED=true
+  . loop/lib/common.sh; . loop/lib/memory.sh
+  backlog_add "same deferred item"; backlog_add "same deferred item"; backlog_add "another item" )
+n="$(grep -c '^- ' "$TMP/bl.md" 2>/dev/null)"
+[ "$n" = "2" ] && ok "backlog deduplicates carried items" || no "backlog dedupe" "lines=$n want 2"
+
+# 42) memory hygiene: digests are pruned to max_entries and redacted on write.
+rm -f "$TMP/mm.md"
+( MEMORY_FILE="$TMP/mm.md" MEMORY_ENABLED=true MEMORY_MAX_ENTRIES=3
+  . loop/lib/common.sh; . loop/lib/memory.sh
+  for i in 1 2 3 4; do printf 'digest body %s\n' "$i" | memory_append "r$i"; done
+  printf 'leaked %s\n' "$ghp2" | memory_append "r5" )
+n="$(grep -c '^## ' "$TMP/mm.md" 2>/dev/null)"
+if [ "$n" = "3" ] && grep -q 'r5' "$TMP/mm.md" && ! grep -q '— r1$' "$TMP/mm.md" \
+   && ! grep -q "$ghp2" "$TMP/mm.md" && grep -q 'REDACTED' "$TMP/mm.md"; then
+  ok "memory pruned to max_entries and redacted on write"
+else no "memory hygiene" "sections=$n r1=$(grep -c '— r1$' "$TMP/mm.md" 2>/dev/null) leak=$(grep -c "$ghp2" "$TMP/mm.md" 2>/dev/null)"; fi
 
 echo
 if [ "$fail" -eq 0 ]; then printf 'evals: \033[32m%d passed, 0 failed\033[0m\n' "$pass"
