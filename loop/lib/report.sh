@@ -94,6 +94,26 @@ report_render() {
     echo "| --- | --- | --- | --- |"
     state_get_raw '.gates // {}' | jq -r 'to_entries[] | "| \(.key) | \(.value.status) | \(.value.code) | `\(.value.command)` |"'
     echo
+    # Diagnostics for every non-green gate (CON-037): the signer and the fixing
+    # agent get the WHY, not just an exit code.
+    local _redverbs _rv _rvlog
+    _redverbs="$(state_get_raw '.gates // {}' | jq -r 'to_entries[] | select(.value.status=="red") | .key')"
+    if [ -n "$_redverbs" ] && [ -n "${LOOP_GATE_LOG_DIR:-}" ]; then
+      echo "### Gate output excerpts (red gates)"
+      echo
+      for _rv in $_redverbs; do
+        _rvlog="$LOOP_GATE_LOG_DIR/$(printf '%s' "$_rv" | tr ':' '_').log"
+        [ -s "$_rvlog" ] || continue
+        echo "<details><summary><code>$_rv</code> — last 40 lines</summary>"
+        echo
+        echo '```'
+        tail -n 40 "$_rvlog"
+        echo '```'
+        echo
+        echo "</details>"
+      done
+      echo
+    fi
     echo "## Cost & iterations"
     echo
     echo "- Iterations consumed: $(state_get '.iteration') / $(state_get '.config.max_iterations')"
@@ -115,6 +135,16 @@ report_render() {
     echo
     if [ -f "$RUN_DIR/walkthrough.md" ]; then cat "$RUN_DIR/walkthrough.md"; else echo "_not generated_"; fi
     echo
+    echo "## Human decisions (trust ledger, CON-062)"
+    echo
+    if [ -f "${TRUST_FILE:-/nonexistent}" ]; then
+      local hd
+      hd="$(jq -r --arg r "$(state_get '.run_id')" \
+        'select(.run_id==$r) | "- `\(.gate)`: **\(.decision)** at \(.ts)"' \
+        "$TRUST_FILE" 2>/dev/null)"
+      if [ -n "$hd" ]; then printf '%s\n' "$hd"; else echo "_none recorded for this run_"; fi
+    else echo "_no ledger yet_"; fi
+    echo
     echo "## Carried-forward backlog (cross-run)"
     echo
     if [ -n "${BACKLOG_FILE:-}" ] && [ -f "$BACKLOG_FILE" ]; then
@@ -127,6 +157,6 @@ report_render() {
     echo "content transmitted to the model API during stage calls. PII/secrets are"
     echo "kept out of this report and the event stream via the configured redaction"
     echo "patterns, and \`runs_dir\` is gitignored by default (CON-090..092)."
-  } > "$f"
+  } | redact_stream > "$f"
   ok "report written: $f"
 }

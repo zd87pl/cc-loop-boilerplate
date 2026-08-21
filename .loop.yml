@@ -26,6 +26,12 @@ protected_branches:              # the loop refuses to commit/push to any of the
   - master
   - release
   - production
+protected_paths:                 # stage sessions may not MODIFY these (CON-045):
+  - .claude/settings.json        # the guardrail chain enforces itself — a
+  - .claude/settings.local.json  # PreToolUse veto at write time plus a diff
+  - ".claude/hooks/*"            # barrier before pre-merge. Globs, repo-relative.
+  - specs/constitution.md        # Interactive sessions are exempt; a self-hosting
+  - .loop.yml                    # run needs LOOP_ALLOW_PROTECTED=1.
 
 # ---------------------------------------------------------------------------
 # Loop bounds (hard stops — the controller cannot exceed these)
@@ -79,12 +85,50 @@ models:
 # ---------------------------------------------------------------------------
 gates:
   fmt: ""                        # e.g. "make fmt"
-  lint: ""                       # e.g. "golangci-lint run"
+  lint: "bash scripts/lint.sh"   # SELF-verification: this repo lints its own
+                                 # shell/JSON/constitution (skips honestly when
+                                 # a tool is missing). Replace for your stack,
+                                 # or set "" to use the auto-detected adapter.
   typecheck: ""                  # e.g. "mypy ."
   test: ""                       # e.g. "pnpm test --filter changed"
   build: ""                      # e.g. "make build"
   securityscan: ""               # e.g. "semgrep --config auto"
 coverage_threshold: 0            # minimum % line coverage the verifier enforces (0 = off)
+
+# Minimum-gates policy (CON-034): these gates must actually run GREEN before the
+# human pre-merge gate. A required gate that was SKIPPED (toolchain missing)
+# fails a live run — no toolchain must not read as "verified". Dry runs warn
+# only. Omit the key for the default [test]; set an explicit [] to disable.
+required_gates:
+  - test
+
+# Review-loop severity policy (CON-035): findings at or above this severity
+# block (repeat the fix cycle); anything below is carried to the backlog.
+review:
+  block_severity: high           # critical | high | medium | low
+
+# Cyclomatic-complexity ceiling for the `complexity` gate (0 = gate off).
+complexity_max: 0
+
+# ---------------------------------------------------------------------------
+# Risk profiles (CON-039) — constraint strength calibrates to the spec's risk
+# class from /spec-review ("every yes is a statement about how low the stakes
+# are"). Each profile can set: required_gates (UNION-merged with the global
+# floor above), coverage_threshold, review_block_severity, mutation (on/off),
+# complexity_max, max_iterations, skip_is_red (gates whose SKIP counts as RED),
+# and drift_action (off|warn|halt, consumed by the plan-drift check).
+# The commented block below documents the built-in defaults — uncomment to
+# override. Sensitive changes get a MANDATORY security pass and coverage bar.
+# ---------------------------------------------------------------------------
+# risk_profiles:
+#   low:       { required_gates: [test], review_block_severity: high,
+#                mutation: false, drift_action: warn }
+#   standard:  { required_gates: [test, lint], review_block_severity: high,
+#                mutation: false, drift_action: warn }
+#   sensitive: { required_gates: [test, lint, typecheck, build, securityscan, coverage],
+#                coverage_threshold: 80, review_block_severity: medium,
+#                mutation: true, skip_is_red: [securityscan, coverage],
+#                drift_action: halt }
 
 # ---------------------------------------------------------------------------
 # Secret scanning (PreToolUse veto)
@@ -100,7 +144,20 @@ explore:
 memory:
   enabled: true                  # load prior-run digests at start; append one at end
   file: .loop/memory.md          # cross-run memory (gitignored; survives `make clean`)
-  backlog_file: .loop/backlog.md # carried-forward deferred items
+  backlog_file: .loop/backlog.md # carried-forward deferred items (deduplicated)
+  max_entries: 20                # newest digests kept; older ones pruned (hygiene)
+  trust_file: .loop/trust.jsonl  # durable ledger of human-gate decisions (CON-062)
+
+# Opt-in gate delegation (CON-062) — OFF by default. When enabled, a listed
+# gate may pass without a prompt ONLY if the run's risk class is within
+# max_risk AND the trust ledger shows >= min_streak consecutive HUMAN
+# approvals for that gate (a decline resets the streak; autopasses are
+# recorded but never count toward it).
+human_gates_autopass:
+  enabled: false
+  gates: [spec]                  # premerge is deliberately not listed
+  max_risk: low
+  min_streak: 3
 
 # ---------------------------------------------------------------------------
 # PR behavior

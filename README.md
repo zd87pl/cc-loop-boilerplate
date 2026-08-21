@@ -113,16 +113,38 @@ implement the verbs, and add a detection rule to `adapters/detect.sh`.
 ## Safety & governance
 
 - Runs only on a dedicated worktree/branch; refuses protected branches and
-  destructive git operations.
-- A **PreToolUse** hook vetoes writes/commands that would expose a secret or
-  rewrite shared history (exit code 2 denies).
+  destructive git operations — hook and controller share **one** veto
+  implementation (`looks_destructive`), so they can never disagree.
+- A **PreToolUse** hook (exit code 2 denies) vetoes: destructive commands;
+  secret exposure across *every* write surface (Edit/MultiEdit/NotebookEdit/
+  Write/Bash payloads, honoring `secret_scan`/`secret_scanner`); writes to
+  **protected paths** (the guardrail chain itself — hooks, settings,
+  constitution, `.loop.yml`) inside stage sessions; and repo writes from
+  stages whose contract is read-only (review/verify write run artifacts only).
+- **Risk-calibrated constraints** (`/spec-review` classifies low/standard/
+  sensitive): required gates, coverage bar, review blocking severity,
+  mutation testing, and drift response all scale with the stakes.
+- **Deterministic backstops** before pre-merge: required gates must have run
+  green (a skipped required gate fails a live run), the branch diff may not
+  touch protected paths, and **plan-files drift** (changed files the plan/tasks
+  never named) warns or halts per `drift_action`.
 - Hard `max_iterations` and `cost_ceiling_usd`; human gates after spec
-  normalization and before opening a PR.
-- Every run leaves an audit trail — `events.jsonl` + `report.md` with a
+  normalization and before opening a PR — each prompt shows the **evidence
+  being signed** (verdicts, gate states, findings, diff), every outcome lands
+  in a durable **trust ledger** (`.loop/trust.jsonl`), and gate delegation
+  (`human_gates_autopass`) is opt-in, risk-capped, and fed only by recorded
+  human approvals.
+- Every run leaves an audit trail — `events.jsonl` (stage durations + SHAs) +
+  per-verb gate diagnostics (`gates/*.log`) + `report.md` with a
   reproducibility header (models, tool versions, config hash, base/head SHAs).
 - **Data handling:** all processing is local; the only data leaving the machine
-  is the content sent to the model API. PII/secrets are kept out of logs/reports,
-  and `.loop/runs/` is gitignored.
+  is the content sent to the model API. Logs, gate output, state, memory, and
+  the report pass through **redaction** (builtin token shapes +
+  `redact_patterns`), and `.loop/runs/` is gitignored.
+- **Self-verification:** the repo lints itself (`make lint` — shellcheck, JSON
+  validity, unique constitution rule ids) and wires that as its own
+  `gates.lint`, so the Stop hook holds this repo to the same bar it holds
+  yours.
 
 ## Distribution
 

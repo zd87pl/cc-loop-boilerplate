@@ -14,7 +14,14 @@ tool_available() { # name reachable directly or via bundler
   have "$1" || { [ -f Gemfile ] && have bundle && bundle exec "$1" --version >/dev/null 2>&1; }
 }
 
+# $LOOP_FMT_CHECK=1 -> verify formatting without rewriting (CON-038).
 verb_fmt() {
+  if [ "${LOOP_FMT_CHECK:-0}" = "1" ]; then
+    # rubocop has no format-only check mode; the lint verb already runs the
+    # full non-mutating rubocop pass, so don't double it here.
+    skip "no non-mutating format-only check (rubocop runs under lint)"
+    return 0
+  fi
   if tool_available rubocop; then bx rubocop -A
   else skip "rubocop not available"; fi
 }
@@ -45,6 +52,15 @@ verb_securityscan() {
   if   tool_available brakeman; then bx brakeman -q
   elif tool_available bundle-audit; then bx bundle-audit check --update
   else skip "no security scanner (brakeman or bundler-audit)"; fi
+}
+
+# Extended gate (agentic-code-quality alignment): generic cyclomatic-complexity
+# check via lizard when installed. Threshold via $LOOP_COMPLEXITY_MAX.
+verb_complexity() {
+  local max="${LOOP_COMPLEXITY_MAX:-0}"
+  [ "${max:-0}" -gt 0 ] 2>/dev/null || { skip "complexity gate off (set complexity_max in .loop.yml)"; return 0; }
+  if have lizard; then run lizard -C "$max" -i 0 .
+  else skip "lizard not installed"; fi
 }
 
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then

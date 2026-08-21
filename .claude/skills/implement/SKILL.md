@@ -15,11 +15,11 @@ Read `specs/constitution.md`, the spec, and `tasks.md` first.
 1. Pick the next unfinished task (or the one named in `$ARGUMENTS`).
 2. Delegate to the **implementer** subagent.
 3. Write the **test** for the task's acceptance check and the **code** that makes
-   it pass — the smallest change that satisfies exactly this task (CON-020/021).
+   it pass — the smallest change that satisfies exactly this task (CON-023/024).
 4. Let the gates run: the PostToolUse hook formats edits; the Stop hook runs the
    gate suite. Do not work around a failing gate — fix the cause.
 5. Commit with a conventional message that references the task id, e.g.
-   `feat(x): … (T2, REQ-003)` (CON-022).
+   `feat(x): … (T2, REQ-003)` (CON-025).
 
 ## Output
 - Code + test for one task, committed on the feature branch.

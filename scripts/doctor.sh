@@ -35,6 +35,9 @@ else
   wn "no gitleaks/trufflehog — the PreToolUse guard falls back to a builtin regex scan"
 fi
 opt semgrep "richer securityscan (wire via .loop.yml gates.securityscan)"
+opt perl "full-PCRE redaction of logs/reports (falls back to a best-effort sed scrub)"
+opt shellcheck "self-lint of the loop's own shell (scripts/lint.sh skips it when absent)"
+opt check-jsonschema "state.json schema validation at run end (warn-only)"
 
 hdr "Configuration"
 if [ -f .loop.yml ]; then
@@ -66,6 +69,19 @@ if [ -n "$stacks" ]; then
   done
 else
   wn "no language stack detected — gates will skip; set .loop.yml gates.* to override per-verb"
+fi
+
+hdr "Self-checks (the loop's own guardrail chain)"
+mset="$(jq -r '.hooks.PreToolUse[0].matcher // ""' .claude/settings.json 2>/dev/null)"
+mplug="$(jq -r '.hooks.PreToolUse[0].matcher // ""' .claude/hooks/hooks.json 2>/dev/null)"
+if [ -n "$mset" ] && [ "$mset" = "$mplug" ]; then ok "PreToolUse matcher identical in settings.json and hooks.json"
+elif [ -z "$mplug" ]; then wn "no plugin hooks.json matcher (vendored-only install)"
+else no "PreToolUse matcher differs between settings.json ('$mset') and hooks.json ('$mplug') — one install mode is unguarded"; REQ_MISSING=1; fi
+
+if [ -f scripts/spec-lint.sh ] && [ -f specs/constitution.md ]; then
+  if bash scripts/spec-lint.sh specs/constitution.md --ids-only >/dev/null 2>&1; then
+    ok "constitution ids are unique (spec-lint --ids-only)"
+  else no "constitution failed id lint — run: bash scripts/spec-lint.sh specs/constitution.md --ids-only"; REQ_MISSING=1; fi
 fi
 
 hdr "Summary"

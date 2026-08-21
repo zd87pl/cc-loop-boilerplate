@@ -32,7 +32,9 @@ Then report:
 - **Uncovered requirements** — the gap list a human must close.
 - **Drift** — anything the code does beyond the spec.
 - **Verdict** — PASS only if every requirement is COVERED, there is no DRIFT, and
-  no required gate is red. Otherwise FAIL with the specific reasons.
+  no required gate is red. Otherwise FAIL with the specific reasons. Where the
+  invoking skill names a verdict file, write the single token `PASS` or `FAIL`
+  (exactly) there — the controller gates on that file (CON-036).
 
 Be skeptical and concrete. A green checkmark you cannot justify from the code and
 a passing test is a defect in your report. Write the matrix where the invoking

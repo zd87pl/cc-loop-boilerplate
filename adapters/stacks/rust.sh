@@ -7,9 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 require_cargo() { have cargo || { skip "cargo not installed"; return 1; }; }
 
+# $LOOP_FMT_CHECK=1 -> verify formatting without rewriting (CON-038).
 verb_fmt() {
   require_cargo || return 0
-  run cargo fmt --all
+  if [ "${LOOP_FMT_CHECK:-0}" = "1" ]; then run cargo fmt --all --check
+  else run cargo fmt --all; fi
 }
 
 verb_lint() {
@@ -39,6 +41,25 @@ verb_build() {
 verb_securityscan() {
   if cargo audit --version >/dev/null 2>&1; then run cargo audit
   else skip "cargo-audit not installed (cargo install cargo-audit)"; fi
+}
+
+# Extended gates (agentic-code-quality alignment). Threshold via env:
+#   LOOP_COVERAGE_MIN   minimum %-coverage (0 = measure only)
+verb_coverage() {
+  require_cargo || return 0
+  local min="${LOOP_COVERAGE_MIN:-0}"
+  if cargo tarpaulin --version >/dev/null 2>&1; then
+    if [ "${min:-0}" -gt 0 ] 2>/dev/null; then run cargo tarpaulin --fail-under "$min"
+    else run cargo tarpaulin; fi
+  elif cargo llvm-cov --version >/dev/null 2>&1; then
+    if [ "${min:-0}" -gt 0 ] 2>/dev/null; then run cargo llvm-cov --fail-under-lines "$min"
+    else run cargo llvm-cov; fi
+  else skip "no coverage tool (cargo install cargo-tarpaulin or cargo-llvm-cov)"; fi
+}
+
+verb_mutation() {
+  if cargo mutants --version >/dev/null 2>&1; then run cargo mutants
+  else skip "cargo-mutants not installed (cargo install cargo-mutants)"; fi
 }
 
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then

@@ -95,15 +95,19 @@ and the verifier's traceability matrix.
 - **CON-021** The system shall ship a deterministic eval suite that asserts its
   guardrails (halt-on-ambiguity, lint, secret/destructive veto, protected-branch
   refusal, a real gate) and shall run it with no model calls so it is safe in CI.
+- **CON-026** When a stage completes, the controller shall validate the stage's
+  declared artifacts deterministically (existence, parseability, token
+  whitelists, findings schema); if validation fails, the controller shall halt
+  rather than proceed on unvalidated model output.
 
 ### Increments
 
-- **CON-020** While implementing, the agent shall prefer the smallest change that
+- **CON-023** While implementing, the agent shall prefer the smallest change that
   satisfies exactly one task.
-- **CON-021** When a task is implemented, the agent shall write or update at
+- **CON-024** When a task is implemented, the agent shall write or update at
   least one test that proves the task's acceptance check before the task is
   considered done.
-- **CON-022** The system shall record one commit per task, referencing the task
+- **CON-025** The system shall record one commit per task, referencing the task
   identifier in the commit message.
 
 ### Determinism and gates
@@ -115,6 +119,28 @@ and the verifier's traceability matrix.
   advance to a human pre-merge gate.
 - **CON-032** Where a coverage threshold is configured, if a change lowers line
   coverage below that threshold, then verification shall fail.
+- **CON-033** The controller shall derive the review-loop finding count from a
+  schema-validated findings file, never from free text or a model-written
+  integer.
+- **CON-034** Where `required_gates` is configured, while any required gate is
+  red or was skipped in a live run, the controller shall not advance to the
+  human pre-merge gate.
+- **CON-035** When review findings exist, the controller shall block only on
+  findings at or above the configured severity threshold and shall carry
+  lower-severity findings into the persistent backlog.
+- **CON-036** When the verify stage completes, the controller shall read a
+  deterministic PASS/FAIL verdict artifact and shall halt on FAIL (or on a
+  missing/malformed verdict) before the human pre-merge gate.
+- **CON-037** When a gate fails, the system shall capture bounded gate output
+  and surface it in the report and to the fixing agent — an exit code with no
+  diagnostics is not actionable feedback.
+- **CON-038** While running the judging gate suite, the system shall not mutate
+  the working tree (formatters run in check mode there; mutation belongs to the
+  edit-time hooks).
+- **CON-039** Where the risk profile enables them, the system shall enforce
+  coverage, complexity, architecture, and mutation gates through stack adapters
+  that skip when tooling is absent — except where the profile marks a gate
+  mandatory, in which case a skip shall fail.
 
 ### Safety, branches, and secrets
 
@@ -129,6 +155,14 @@ and the verifier's traceability matrix.
   then the operation shall be denied (PreToolUse exit code 2).
 - **CON-044** The system shall never auto-merge; a human shall open or promote
   the PR to ready.
+- **CON-045** While a controller-spawned stage session runs, the system shall
+  deny modification of protected paths — the guardrail chain itself (hook
+  scripts, `.claude/settings.json`, this constitution, `.loop.yml`) — at write
+  time, and before pre-merge the controller shall red-gate any branch diff that
+  touches a protected path. The set is configurable (`protected_paths`); a human
+  running a self-hosting loop may lift the write-time veto for a run with
+  `LOOP_ALLOW_PROTECTED=1` (the diff barrier still reports what changed).
+  Human-supervised interactive sessions are exempt from the write-time veto.
 
 ### Bounds
 
@@ -139,6 +173,10 @@ and the verifier's traceability matrix.
 - **CON-052** While the loop is running, if an iteration produces no measurable
   progress (no stage advanced and no gate flipped to green), then the controller
   shall halt to avoid spinning.
+- **CON-053** When the implemented diff contains files that neither the plan
+  nor the task list named, the system shall respond per the risk-calibrated
+  `drift_action` — warn by default, halt for sensitive changes — and record
+  the unplanned files in the state and event stream either way.
 
 ### Human gates
 
@@ -146,6 +184,16 @@ and the verifier's traceability matrix.
   sign-off before any code is written (configurable; on by default).
 - **CON-061** Before opening a PR, the system shall require human sign-off on the
   verifier's traceability matrix (configurable; on by default).
+- **CON-062** Every human-gate outcome shall be recorded in a durable trust
+  ledger. A gate may be auto-approved ("autopass") only under an explicit
+  opt-in policy — the gate is listed, the run's risk class is within the
+  configured ceiling, and the ledger shows the configured number of
+  consecutive human approvals for that gate — and each autopass shall itself
+  be recorded (in the ledger and the event stream) without extending the
+  streak, so delegation never feeds on itself. A human decline resets the
+  streak. When a gate prompts, the system shall present the evidence being
+  signed (verdicts, gate states, findings, diff summary, artifact paths) —
+  a bare y/N is not informed sign-off.
 
 ### Roles and least privilege
 
@@ -153,6 +201,11 @@ and the verifier's traceability matrix.
   `verifier`) shall be configured read-only and shall not be granted edit tools.
 - **CON-071** All file edits shall route through the `implementer` subagent or
   the parent session so permission prompts and hooks are honored.
+- **CON-072** While a stage session other than implement/fix runs, file writes
+  shall be scoped to that stage's contract: run-directory artifacts and `.loop/`
+  state only, never the repository tree. Enforcement is mechanical (the
+  PreToolUse guard, keyed on the controller-set stage marker) — withholding
+  edit tools alone is not enforcement, since it never stopped a Bash redirect.
 
 ### Observability and audit
 
@@ -160,6 +213,9 @@ and the verifier's traceability matrix.
   (stage, result, duration, token usage, cost, git SHA) to the run log.
 - **CON-081** Every run shall produce an audit trail sufficient to reproduce it:
   model strings, tool versions, config hash, and base + head git SHAs.
+- **CON-082** The controller shall exit with distinct, documented codes for
+  completed, needs-clarification, halted, and partial outcomes so wrappers and
+  CI can distinguish a blocked run from a clean one.
 
 ### Data handling (GDPR-aware)
 

@@ -19,13 +19,26 @@
     "halt_reason": { "type": ["string", "null"] },
     "current_stage": { "type": ["string", "null"] },
     "iteration": { "type": "integer", "minimum": 0, "description": "review<->fix cycles consumed." },
+    "exit_code": {
+      "type": "integer",
+      "description": "Documented CON-082 exit code recorded at run end (0/10/20/30/40)."
+    },
     "spec": {
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "dir": { "type": "string" },
         "path": { "type": "string" },
-        "id": { "type": ["string", "null"] }
+        "id": { "type": ["string", "null"] },
+        "readiness": { "enum": ["READY", "CAVEATS", "NOT_READY"] },
+        "risk_class": { "enum": ["low", "standard", "sensitive"] }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "deferred": { "type": "integer", "minimum": 0, "description": "Non-blocking findings carried to the backlog." }
       }
     },
     "git": {
@@ -44,8 +57,13 @@
       "additionalProperties": true,
       "properties": {
         "hash": { "type": "string", "description": "Hash of .loop.yml for reproducibility." },
-        "max_iterations": { "type": "integer", "minimum": 1 },
-        "cost_ceiling_usd": { "type": "number", "minimum": 0 }
+        "max_iterations": { "type": "integer", "minimum": 0 },
+        "cost_ceiling_usd": { "type": "number", "minimum": 0 },
+        "effective_coverage_threshold": { "type": "integer", "minimum": 0 },
+        "risk_profile": { "enum": ["low", "standard", "sensitive"] },
+        "required_gates": { "type": "string", "description": "Space-separated resolved required-gate list." },
+        "review_block_severity": { "enum": ["critical", "high", "medium", "low"] },
+        "drift_action": { "enum": ["off", "warn", "halt"] }
       }
     },
     "models": {

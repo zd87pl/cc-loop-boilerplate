@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Review findings (written by the review stage, consumed by fix and the controller)",
+  "description": "The controller derives the review-loop count from this file with jq (loop/lib/artifacts.sh), never from free text (CON-033). Keep it machine-parseable.",
+  "type": "object",
+  "required": ["findings"],
+  "properties": {
+    "start_here": {
+      "type": "string",
+      "description": "The single highest-leverage finding to fix first."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "title"],
+        "properties": {
+          "id": { "type": "string", "description": "Stable, unique within the file (e.g. F-001)." },
+          "severity": { "enum": ["critical", "high", "medium", "low"] },
+          "title": { "type": "string" },
+          "detail": { "type": "string" },
+          "file": { "type": "string" },
+          "line": { "type": "integer" },
+          "requirement": { "type": "string", "pattern": "^(REQ|CON|PRD|ADR)-[0-9]+" },
+          "cwe": { "type": "string", "pattern": "^CWE-[0-9]+$" },
+          "source": { "enum": ["reviewer", "security-auditor"] }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
